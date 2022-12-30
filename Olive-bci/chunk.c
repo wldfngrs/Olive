@@ -25,7 +25,7 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	static int currentLine = 0;
 	static int operationsPerLine = 0;
 	static int index = 0;
-	int temp;
+	static int temp;
 	
 	if(chunk->capacity < chunk->count + 1) {
 		int oldCapacity = chunk->capacity;
