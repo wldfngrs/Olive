@@ -4,6 +4,9 @@
 #include "common.h"
 #include "scanner.h"
 
+static int interpolationCount = 0;
+static bool inInterpolation = false;
+
 typedef struct {
 	const char* start;
 	const char* current;
@@ -141,6 +144,33 @@ static TokenType identifierType() {
 	return TOKEN_IDENTIFIER;
 }
 
+static Token interpolation() {
+	Token token = makeToken(TOKEN_INTERPOLATION);
+	scanner.current+=1;
+	return token;
+}
+
+static Token string() {	
+	while(peek() != '"' && !isAtEnd()) {
+		if(peek() == '\n') scanner.line++;
+		if(peek() == '$' && peekNext() == '{') {
+			inInterpolation = true;
+			return interpolation();
+		}
+		advance();
+	}
+	
+	if(isAtEnd()){
+		return errorToken("Unterminated string.");
+	}
+	
+	advance();
+	
+	if(!interpolationCount) inInterpolation = false;
+	
+	return makeToken(TOKEN_STRING);
+}
+
 static Token identifier() {
 	while(isAlpha(peek()) || isDigit(peek())) advance();
 	
@@ -161,18 +191,6 @@ static Token number() {
 	return makeToken(TOKEN_NUMBER);
 }
 
-static Token string() {
-	while(peek() != '"' && !isAtEnd()) {
-		if(peek() == '\n') scanner.line++;
-		advance();
-	}
-	
-	if(isAtEnd()) return errorToken("Unterminated string.");
-	
-	advance();
-	return makeToken(TOKEN_STRING);
-}
-
 Token scanToken() {
 	skipWhitespace();
 	scanner.start = scanner.current;
@@ -187,8 +205,21 @@ Token scanToken() {
 	switch(c) {
 		case '(': return makeToken(TOKEN_LEFT_PAREN);
 		case ')': return makeToken(TOKEN_RIGHT_PAREN);
-		case '{': return makeToken(TOKEN_LEFT_BRACE);
-		case '}': return makeToken(TOKEN_RIGHT_BRACE);
+		case '{': 
+			if (inInterpolation) {
+				interpolationCount++;
+				return scanToken();
+			}
+			
+			return makeToken(TOKEN_LEFT_BRACE);
+		case '}': 
+			if (inInterpolation) {
+				interpolationCount--;
+				scanner.start++;
+				return string();
+			}
+			
+			return makeToken(TOKEN_RIGHT_BRACE);
 		case ';': return makeToken(TOKEN_SEMICOLON);
 		case ',': return makeToken(TOKEN_COMMA);
 		case '.': return makeToken(TOKEN_DOT);
@@ -204,7 +235,8 @@ Token scanToken() {
 			return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
 		case '>':
 			return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
-		case '"': return string();
+		case '"':
+			return string();
 	}
 	
 	return errorToken("Unexpected character.");

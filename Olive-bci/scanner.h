@@ -20,7 +20,9 @@ typedef enum {
 	TOKEN_PRINT, TOKEN_RETURN, TOKEN_BASE, TOKEN_THIS,
 	TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE,
 	TOKEN_ERROR,
-	TOKEN_EOF
+	TOKEN_EOF,
+	// Placeholder tokens for string interpolation
+	TOKEN_INTERPOLATION
 } TokenType;
 
 typedef struct {
