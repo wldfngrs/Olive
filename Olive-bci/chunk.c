@@ -4,6 +4,12 @@
 #include "chunk.h"
 #include "memory.h"
 
+void clearLineInfo() {
+	currentLine = 0;
+	operationsPerLine = 0;
+	indx = 0;
+}
+
 void initChunk(Chunk* chunk) {
 	chunk->count = 0;
 	chunk->capacity = 0;
@@ -15,18 +21,13 @@ void initChunk(Chunk* chunk) {
 
 void freeChunk(Chunk* chunk) {
 	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-	FREE_ARRAY(int, chunk->lineArr, chunk->capacity);
 	FREE_ARRAY(int, chunk->codeArr, chunk->capacity);
+	FREE_ARRAY(int, chunk->lineArr, chunk->capacity);
 	freeValueArray(&chunk->constants);
 	initChunk(chunk);
 }
 
 void writeChunk(Chunk* chunk, uint8_t byte, int line) {
-	static int currentLine = 0;
-	static int operationsPerLine = 0;
-	static int index = 0;
-	static int temp;
-	
 	if(chunk->capacity < chunk->count + 1) {
 		int oldCapacity = chunk->capacity;
 		chunk->capacity = GROW_CAPACITY(oldCapacity);
@@ -38,10 +39,10 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	if (line != currentLine) {
 		currentLine = line;
 		operationsPerLine = 1;
-		chunk->lineArr[index] = line;
-		temp = index;
+		chunk->lineArr[indx] = line;
+		temp = indx;
 		chunk->codeArr[temp] = operationsPerLine;
-		index++; 
+		indx++; 
 	} else {
 		chunk->codeArr[temp] = ++operationsPerLine;
 	}

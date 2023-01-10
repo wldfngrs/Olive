@@ -133,7 +133,7 @@ static void binary() {
 	TokenType operatorType = parser.previous.type;
 	
 	ParseRule* rule = getRule(operatorType);
-	// check why '+ 1'
+	// check why '+ 1': To stop parsing after the immediate number appearing as the right operand
 	parsePrecedence((Precedence)(rule->precedence + 1));
 	
 	switch(operatorType) {

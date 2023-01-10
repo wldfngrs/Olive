@@ -95,5 +95,6 @@ InterpretResult interpret(const char* source) {
 	InterpretResult result = run();
 	
 	freeChunk(&chunk);
+	clearLineInfo();
 	return result;
 }

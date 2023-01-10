@@ -4,6 +4,12 @@
 #include "common.h"
 #include "value.h"
 
+// Line info
+static int currentLine = 0;
+static int operationsPerLine = 0;
+static int indx = 0;
+static int temp;
+
 typedef enum {
 	OP_CONSTANT_LONG,
 	OP_CONSTANT,
@@ -31,5 +37,6 @@ void writeChunk(Chunk* chunk, uint8_t bytes, int line);
 int addConstant(Chunk* chunk, Value value);
 void writeConstant(Chunk* chunk, Value value, int line);
 int getLine(Chunk* chunk, int instructionIndex);
+void clearLineInfo();
 
 #endif
