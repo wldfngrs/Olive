@@ -86,6 +86,11 @@ InterpretResult interpret(const char* source) {
 	
 	if (!compile(source, &chunk)) {
 		freeChunk(&chunk);
+#ifdef DEBUG_PRINT_CODE
+#ifdef DEBUG_TRACE_EXECUTION
+		clearLineInfo();
+#endif
+#endif		
 		return INTERPRET_COMPILE_ERROR;
 	}
 	
@@ -95,6 +100,10 @@ InterpretResult interpret(const char* source) {
 	InterpretResult result = run();
 	
 	freeChunk(&chunk);
+#ifdef DEBUG_PRINT_CODE
+#ifdef DEBUG_TRACE_EXECUTION
 	clearLineInfo();
+#endif
+#endif
 	return result;
 }
