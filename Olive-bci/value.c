@@ -26,5 +26,92 @@ void freeValueArray(ValueArray* array) {
 }
 
 void printValue(Value value) {
-	printf("%g", value);
+	switch(value.type) {
+		case VAL_BOOL:
+			printf(AS_BOOL(value) ? "true" : "false");
+			break;
+		case VAL_NULL: printf("null"); break;
+		case VAL_NUMBER: printf("%g", AS_NUMBER(value)); break;
+	}
+}
+
+bool valuesEqual(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) == AS_BOOL(b);
+		case VAL_NULL: return true;
+		case VAL_NUMBER: return AS_NUMBER(a) == AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+bool valuesNotEqual(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) != AS_BOOL(b);
+		case VAL_NULL: return false;
+		case VAL_NUMBER: return AS_NUMBER(a) != AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+bool valuesGreater(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) > AS_BOOL(b);
+		case VAL_NULL: return false;
+		case VAL_NUMBER: return AS_NUMBER(a) > AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+bool valuesGreaterEqual(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) >= AS_BOOL(b);
+		case VAL_NULL: return false;
+		case VAL_NUMBER: return AS_NUMBER(a) >= AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+bool valuesLess(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) < AS_BOOL(b);
+		case VAL_NULL: return false;
+		case VAL_NUMBER: return AS_NUMBER(a) < AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+bool valuesLessEqual(Value a, Value b) {
+	if (a.type != b.type) return false;
+	
+	switch(a.type) {
+		case VAL_BOOL: return AS_BOOL(a) <= AS_BOOL(b);
+		case VAL_NULL: return false;
+		case VAL_NUMBER: return AS_NUMBER(a) <= AS_NUMBER(b);
+		default:
+			return false;
+	}
+}
+
+Value valuesConditional(Value a, Value b, Value conditional) {
+	switch(AS_BOOL(conditional)) {
+		case true:
+			return a;
+		case false:
+			return b;
+	}
 }

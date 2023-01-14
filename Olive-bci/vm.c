@@ -1,3 +1,6 @@
+#include <stdarg.h>
+#include <stdio.h>
+
 #include "common.h"
 #include "compiler.h"
 #include "debug.h"
@@ -8,6 +11,20 @@ VM vm;
 static void resetStack() {
 	initStack(&vm.stack);
 	vm.stackTop = vm.stack.stack;
+}
+
+static void runtimeError(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	vfprintf(stderr, format, args);
+	va_end(args);
+	fputs("\n", stderr);
+	
+	size_t instruction = vm.ip - vm.chunk->code - 1;
+	int line = getLine(vm.chunk, instruction);
+	fprintf(stderr, "[line %d] in script\n", line);
+	
+	resetStack();
 }
 
 void initVM() {
@@ -32,15 +49,27 @@ Value pop() {
 	return *vm.stackTop;
 }
 
+static Value peek(int distance) {
+	return vm.stackTop[-1-distance];
+}
+
+static bool isFalsey(Value value) {
+	return IS_NULL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 
-#define BINARY_OP(op)\
+#define BINARY_OP(valueType, op)\
 	do { \
-		double b = pop(); \
+		if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {\
+			runtimeError("Operands must be numbers."); \
+			return INTERPRET_RUNTIME_ERROR; \
+		}\
+		double b = AS_NUMBER(pop()); \
 		Value* stackTop = vm.stackTop - 1; \
-		*stackTop = *stackTop op b; \
+		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop) op b; \
 	} while (false)
 
 	for (;;) {
@@ -61,13 +90,63 @@ static InterpretResult run() {
 				push(constant);
 				break;
 			}
-			case OP_ADD: BINARY_OP(+); break;
-			case OP_SUBTRACT: BINARY_OP(-); break;
-			case OP_MULTIPLY: BINARY_OP(*); break;
-			case OP_DIVIDE: BINARY_OP(/); break;
+			case OP_NULL: push(NULL_VAL); break;
+			case OP_TRUE: push(BOOL_VAL(true)); break;
+			case OP_FALSE: push(BOOL_VAL(false)); break;
+			case OP_EQUAL:
+				Value b = pop();
+				Value* aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesEqual(*aPtr, b));
+				break;
+			case OP_NOT_EQUAL:
+				b = pop();
+				aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesNotEqual(*aPtr, b));
+				break;
+			// Make these work for non-number types as well
+			case OP_GREATER:
+				b = pop();
+				aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesGreater(*aPtr, b));
+				break;
+			case OP_GREATER_EQUAL:
+				b = pop();
+				aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesGreaterEqual(*aPtr, b));
+				break;
+			case OP_LESS:
+				b = pop();
+				aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesLess(*aPtr, b));
+				break;
+			case OP_LESS_EQUAL:
+				b = pop();
+				aPtr = vm.stackTop - 1;
+				*aPtr = BOOL_VAL(valuesLessEqual(*aPtr, b));
+				break;
+			case OP_TERNARY:
+				b = pop();
+				Value a = pop();
+				Value* conditional = vm.stackTop - 1;
+				*conditional = AS_BOOL(*conditional) ? a : b;
+				break;
+			case OP_ADD: BINARY_OP(NUMBER_VAL, +); break;
+			case OP_SUBTRACT: BINARY_OP(NUMBER_VAL, -); break;
+			case OP_MULTIPLY: BINARY_OP(NUMBER_VAL, *); break;
+			case OP_DIVIDE: BINARY_OP(NUMBER_VAL, /); break;
+			case OP_NOT:
+				push(BOOL_VAL(isFalsey(pop())));
+				break;
 			case OP_NEGATE: 
-				Value* stackTop = vm.stackTop - 1;
-				*stackTop = 0 - *stackTop; break;
+				if(!IS_NUMBER(peek(0))) {
+					runtimeError("Operand must be a number.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				
+				// Check here for errors
+				Value* valueToNegate = vm.stackTop - 1;
+				
+				(AS_NUMBER(*valueToNegate)) = 0 - (AS_NUMBER(*valueToNegate)); break;
 			case OP_RETURN: {
 				printValue(pop());
 				printf("\n");
