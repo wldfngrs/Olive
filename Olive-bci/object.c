@@ -9,7 +9,7 @@
 #define ALLOCATE_OBJ(type, objectType) \
 	(type*)allocateObject(sizeof(type), objectType)
 	
-static ObjString* allocateObject(size_t size, ObjType type) {
+static Obj* allocateObject(size_t size, ObjType type) {
 	Obj* object = (Obj*)reallocate(NULL, 0, size);
 	object->type = type;
 	
@@ -18,23 +18,16 @@ static ObjString* allocateObject(size_t size, ObjType type) {
 	return object;
 }
 
-static ObjString* allocateString(char* chars, int length) {
-	ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+ObjString* allocateString(const char* chars, int length) {
+	ObjString* string = (ObjString*)allocateObject(sizeof(*string) + sizeof(char)*strlen(chars)+1, OBJ_STRING);
 	string->length = length;
-	string->chars = chars;
+	memcpy(string->chars, chars, length);
+	string->chars[length] = '\0';
 	return string;
 }
 
 ObjString* takeString(char* chars, int length) {
 	return allocateString(chars, length);
-}
-
-ObjString* copyString(const char* chars, int length) {
-	char* heapChars = ALLOCATE(char, length + 1);
-	memcpy(heapChars, chars, length);
-	heapChars[length] = '\0';
-	
-	return allocateString(heapChars, length);
 }
 
 void printObject(Value value) {
