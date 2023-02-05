@@ -11,7 +11,6 @@ typedef struct {
 	uint8_t* ip;
 	Stack stack;
 	Value* stackTop;
-	
 	Obj* objects;
 } VM;
 

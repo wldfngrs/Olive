@@ -3,13 +3,6 @@
 #include "debug.h"
 #include "value.h"
 
-void resetDebugInfo() {
-	currentLine = 0;
-	operationsPerLine = 0;
-	indx = 0;
-	temp;	
-}
-
 static int simpleInstruction(const char* name, int offset) {
 	printf("%s\n", name);
 	return offset + 1;

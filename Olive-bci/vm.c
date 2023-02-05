@@ -157,7 +157,7 @@ static InterpretResult run() {
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
 				} else {
-					runTimeError("Operands must be two numbers or two strings.");
+					runtimeError("Operands must be two numbers or two strings.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -196,11 +196,7 @@ InterpretResult interpret(const char* source) {
 	
 	if (!compile(source, &chunk)) {
 		freeChunk(&chunk);
-#ifdef DEBUG_PRINT_CODE
-#ifdef DEBUG_TRACE_EXECUTION
 		clearLineInfo();
-#endif
-#endif		
 		return INTERPRET_COMPILE_ERROR;
 	}
 	
@@ -210,10 +206,6 @@ InterpretResult interpret(const char* source) {
 	InterpretResult result = run();
 	
 	freeChunk(&chunk);
-#ifdef DEBUG_PRINT_CODE
-#ifdef DEBUG_TRACE_EXECUTION
 	clearLineInfo();
-#endif
-#endif
 	return result;
 }
