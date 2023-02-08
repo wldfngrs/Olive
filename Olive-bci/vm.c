@@ -73,6 +73,7 @@ static void concatenate() {
 	chars[length] = '\0';
 	
 	ObjString* result = takeString(chars, length);
+	result->chars = chars;
 	push(OBJ_VAL(result));
 }
 
