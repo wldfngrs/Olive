@@ -18,28 +18,48 @@ static Obj* allocateObject(size_t size, ObjType type) {
 	return object;
 }
 
+static uint32_t hashString(const char* key, int length) {
+	uint32_t hash = 2166136261u;
+	
+	for (int i = 0; i < length; i++) {
+		hash ^= key[i];
+		hash *= 16777619;
+	}
+}
+
 // does not own their copy of character array. Points back to source string but doesn't free source string
-ObjString* allocateString(const char* chars, int length) {
+ObjString* allocateString(bool ownString, const char* chars, int length) {
+	// Check whether string is stored in string table already
+	uint32_t hash = hashString(chars, length);
+	ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+	if (interned != NULL) { //  if string is stored already in string table
+		if (ownString) {
+			FREE_ARRAY(char, (char*)chars, length + 1);
+		} 
+		return interned;
+	}
+
 	// ObjString points directly into the source code.
 	ObjString* string = (ObjString*)allocateObject(sizeof(ObjString), OBJ_STRING);
 	string->length = length;
 	string->chars = chars;
-	string->ownString = false;
+	string->ownString = ownString;
+	string->hash = hash;
+	
+	tableSet(&vm.strings, &OBJ_KEY(string), NULL_VAL);
+	
 	return string;
 }
 
 // own their copy of the character array. Points back to heap allocated string and frees string.
-ObjString* takeString(bool ownString, int length) {
-	ObjString* string = (ObjString*)allocateObject(sizeof(ObjString), OBJ_STRING);
-	string->length = length;
-	string->ownString = true;
-	return string;
+ObjString* takeString(const char* chars, int length) {
+	return allocateString(true, chars, length);
 }
 
 void printObject(Value value) {
 	switch(OBJ_TYPE(value)) {
 		case OBJ_STRING:
-			printf("%s", AS_CSTRING(value));
+			printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
 			break;
 	}
 }

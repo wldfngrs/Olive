@@ -33,9 +33,11 @@ static void runtimeError(const char* format, ...) {
 void initVM() {
 	resetStack();
 	vm.objects = NULL;
+	initTable(&vm.strings);
 }
 
 void freeVM() {
+	freeTable(&vm.strings);
 	freeObjects();
 }
 
@@ -70,10 +72,8 @@ static void concatenate() {
 	char* chars = ALLOCATE(char, length + 1);
 	memcpy(chars, a->chars, a->length);
 	memcpy(chars + a->length, b->chars, b->length);
-	chars[length] = '\0';
 	
 	ObjString* result = takeString(chars, length);
-	result->chars = chars;
 	push(OBJ_VAL(result));
 }
 

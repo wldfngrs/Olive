@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "value.h"
+#include "table.h"
 
 #define OBJ_TYPE(value)		(AS_OBJ(value)->type)
 
@@ -24,11 +25,12 @@ struct ObjString {
 	Obj obj;
 	int length;
 	bool ownString;
-	const char* chars;	
+	const char* chars;
+	uint32_t hash;	
 };
 
-ObjString* takeString(bool ownString, int length);
-ObjString* allocateString(const char* chars, int length);
+ObjString* takeString(const char* chars, int length);
+ObjString* allocateString(bool ownString, const char* chars, int length);
 void printObject(Value value);
 
 static inline bool isObjType(Value value, ObjType type){
