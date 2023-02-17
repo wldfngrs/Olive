@@ -16,6 +16,9 @@ typedef enum {
 	OP_NULL,
 	OP_TRUE,
 	OP_FALSE,
+	OP_POP,
+	OP_GET_GLOBAL,
+	OP_DEFINE_GLOBAL,
 	OP_EQUAL,
 	OP_NOT_EQUAL,
 	OP_GREATER,
@@ -29,6 +32,7 @@ typedef enum {
 	OP_DIVIDE,
 	OP_NOT,	
 	OP_NEGATE,
+	OP_PRINT,
 	OP_RETURN,
 } OpCode;
 
@@ -36,7 +40,6 @@ typedef struct {
 	int count;
 	int capacity;
 	uint8_t* code;
-	//int* lines;
 	int* lineArr;
 	int* codeArr;
 	ValueArray constants;
@@ -44,6 +47,7 @@ typedef struct {
 
 void initChunk(Chunk* chunk);
 void freeChunk(Chunk* chunk);
+void freeChunkButNotValueArray(Chunk* chunk);
 void writeChunk(Chunk* chunk, uint8_t bytes, int line);
 int addConstant(Chunk* chunk, Value value);
 void writeConstant(Chunk* chunk, Value value, int line);

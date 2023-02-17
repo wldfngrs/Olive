@@ -27,6 +27,17 @@ void freeChunk(Chunk* chunk) {
 	initChunk(chunk);
 }
 
+void freeChunkButNotValueArray(Chunk* chunk) {
+	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
+	FREE_ARRAY(int, chunk->codeArr, chunk->capacity);
+	FREE_ARRAY(int, chunk->lineArr, chunk->capacity);
+	chunk->count = 0;
+	chunk->capacity = 0;
+	chunk->code = NULL;
+	chunk->lineArr = NULL;
+	chunk->codeArr = NULL;
+}
+
 void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	if(chunk->capacity < chunk->count + 1) {
 		int oldCapacity = chunk->capacity;

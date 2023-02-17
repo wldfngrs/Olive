@@ -61,9 +61,9 @@ static Entry* findEntry(Entry* entries, int capacity, Key* key) {
 						
 				}
 		}
-	}
 		
 		index = (index + 1) % capacity;
+	}
 }
 
 bool tableGet(Table* table, Key* key, Value* value) {
@@ -154,7 +154,6 @@ ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t
 		} else if (AS_STRING(entry->key)->length == length && AS_STRING(entry->key)->hash == hash && memcmp(AS_STRING(entry->key)->chars, chars, length) == 0) {
 			return AS_STRING(entry->key);
 		}
+		index = (index + 1) % table->capacity;
 	}
-	
-	index = (index + 1) % table->capacity;
 }

@@ -7,9 +7,11 @@
 #include "debug.h"
 #include "object.h"
 #include "memory.h"
+#include "value.h"
 #include "vm.h"
 
 VM vm;
+Chunk chunkREPL;
 
 static void resetStack() {
 	initStack(&vm.stack);
@@ -33,11 +35,17 @@ static void runtimeError(const char* format, ...) {
 void initVM() {
 	resetStack();
 	vm.objects = NULL;
+	initTable(&vm.globals);
 	initTable(&vm.strings);
 }
 
 void freeVM() {
+	freeTable(&vm.globals);
 	freeTable(&vm.strings);
+	if (REPLmode && vm.chunk != NULL) {
+		freeValueArray(&vm.chunk->constants);
+	}
+	freeStack(&vm.stack);
 	freeObjects();
 }
 
@@ -80,6 +88,10 @@ static void concatenate() {
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_LONG_CONSTANT() (vm.chunk->constants.values[vm.chunk->code[(int)(vm.ip - vm.chunk->code)+1] |\
+			      vm.chunk->code[(int)(vm.ip - vm.chunk->code)+2] << 8 |\
+			      vm.chunk->code[(int)(vm.ip - vm.chunk->code)+3] << 16])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 
 #define BINARY_OP(valueType, op)\
 	do { \
@@ -110,9 +122,30 @@ static InterpretResult run() {
 				push(constant);
 				break;
 			}
+			case OP_CONSTANT_LONG: {
+				Value constant = READ_LONG_CONSTANT();
+				push(constant);
+				break;
+			}
 			case OP_NULL: push(NULL_VAL); break;
 			case OP_TRUE: push(BOOL_VAL(true)); break;
 			case OP_FALSE: push(BOOL_VAL(false)); break;
+			case OP_POP: pop(); break;
+			case OP_GET_GLOBAL: {
+				ObjString* name = READ_STRING();
+				Value value;
+				if (!tableGet(&vm.globals, &OBJ_KEY(name), &value)) {
+					runtimeError("Undefined variable '%.*s'.", name->length, name->chars);
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				push(value);
+				break;
+			}
+			case OP_DEFINE_GLOBAL:
+				ObjString* name = READ_STRING();
+				tableSet(&vm.globals, &OBJ_KEY(name), peek(0));
+				pop();
+				break;
 			case OP_EQUAL:
 				Value b = pop();
 				Value* aPtr = vm.stackTop - 1;
@@ -169,7 +202,7 @@ static InterpretResult run() {
 			case OP_NOT:
 				push(BOOL_VAL(isFalsey(pop())));
 				break;
-			case OP_NEGATE: 
+			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
 					runtimeError("Operand must be a number.");
 					return INTERPRET_RUNTIME_ERROR;
@@ -179,20 +212,27 @@ static InterpretResult run() {
 				Value* valueToNegate = vm.stackTop - 1;
 				
 				(AS_NUMBER(*valueToNegate)) = 0 - (AS_NUMBER(*valueToNegate)); break;
-			case OP_RETURN: {
+			}
+			case OP_PRINT: {
 				printValue(pop());
 				printf("\n");
+				break;
+			}
+			case OP_RETURN: {
 				return INTERPRET_OK;
 			}
 		}
 	}
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_LONG_CONSTANT
+#undef READ_STRING
 #undef BINARY_OP
 }
 
 InterpretResult interpret(const char* source) {
 	Chunk chunk;
+	
 	initChunk(&chunk);
 	
 	if (!compile(source, &chunk)) {
@@ -206,7 +246,26 @@ InterpretResult interpret(const char* source) {
 	
 	InterpretResult result = run();
 	
-	freeChunk(&chunk);
 	clearLineInfo();
-	return result;
+	freeChunk(&chunk);
+}
+
+bool withinREPL = false;
+
+InterpretResult interpretREPL(const char* source) {
+	if (!withinREPL) initChunk(&chunkREPL);
+	
+	if (!compile(source + prevLength, &chunkREPL)) {
+		freeChunkButNotValueArray(&chunkREPL);
+		clearLineInfo();
+		return INTERPRET_COMPILE_ERROR;
+	}
+	
+	vm.chunk = &chunkREPL;
+	vm.ip = vm.chunk->code;
+	
+	InterpretResult result = run();
+	clearLineInfo();
+	freeChunkButNotValueArray(&chunkREPL);
+	withinREPL = true;
 }
