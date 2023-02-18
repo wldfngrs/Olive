@@ -37,6 +37,7 @@ void initVM() {
 	vm.objects = NULL;
 	initTable(&vm.globals);
 	initTable(&vm.strings);
+	initTable(&vm.globalConstantIndex);
 }
 
 void freeVM() {
@@ -146,6 +147,15 @@ static InterpretResult run() {
 				tableSet(&vm.globals, &OBJ_KEY(name), peek(0));
 				pop();
 				break;
+			case OP_SET_GLOBAL:{
+				ObjString* name = READ_STRING();
+				if (tableSet(&vm.globals, &OBJ_KEY(name), peek(0))) {
+					tableDelete(&vm.globals, &OBJ_KEY(name));
+					runtimeError("Undefined variable '%.*s'.", name->length, name->chars);
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				break;
+			}
 			case OP_EQUAL:
 				Value b = pop();
 				Value* aPtr = vm.stackTop - 1;
@@ -255,7 +265,7 @@ bool withinREPL = false;
 InterpretResult interpretREPL(const char* source) {
 	if (!withinREPL) initChunk(&chunkREPL);
 	
-	if (!compile(source + prevLength, &chunkREPL)) {
+	if (!compile(source, &chunkREPL)) {
 		freeChunkButNotValueArray(&chunkREPL);
 		clearLineInfo();
 		return INTERPRET_COMPILE_ERROR;

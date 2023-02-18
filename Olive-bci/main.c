@@ -39,7 +39,7 @@ static void repl() {
 			return;
 		}
 		
-		interpretREPL(line);
+		interpretREPL(line + prevLength);
 		//interpret(line);
 		prevLength = currentLength;
 	}

@@ -115,6 +115,22 @@ bool tableSet(Table* table, Key* key, Value value) {
 	return isNewKey;
 }
 
+bool tableSetGlobal(Table* table, Key* key, Value value) {
+	if(table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
+		int capacity = GROW_CAPACITY(table->capacity);
+		adjustCapacity(table, capacity);
+	}
+
+	Entry* entry = findEntry(table->entries, table->capacity, key);
+	
+	bool isNewKey = IS_NULL(entry->key);
+	if (isNewKey && IS_NULL(entry->value)) table->count++;
+	
+	entry->key = *key;
+	if (isNewKey) entry->value = value;
+	return isNewKey;
+}
+
 bool tableDelete(Table* table, Key* key) {
 	if(table->count == 0) return false;
 	

@@ -14,6 +14,7 @@ typedef struct {
 	Value* stackTop;
 	Table globals;
 	Table strings;
+	Table globalConstantIndex; // probably find a better name
 	Obj* objects;
 } VM;
 
