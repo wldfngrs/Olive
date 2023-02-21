@@ -59,8 +59,8 @@ void push(Value value) {
 	vm.stackTop++;
 }
 
-Value pop() {
-	vm.stackTop--;
+Value pop(uint8_t popCount) {
+	vm.stackTop -= popCount;
 	return *vm.stackTop;
 }
 
@@ -74,8 +74,8 @@ static bool isFalsey(Value value) {
 
 static void concatenate() {
 	//concatenation won't happen too often so I guess it's okay to let push and pop go crazy in here
-	ObjString* b = AS_STRING(pop());
-	ObjString* a = AS_STRING(pop());
+	ObjString* b = AS_STRING(pop(1));
+	ObjString* a = AS_STRING(pop(1));
 	
 	int length = a->length + b->length;
 	char* chars = ALLOCATE(char, length + 1);
@@ -100,7 +100,7 @@ static InterpretResult run() {
 			runtimeError("Operands must be numbers."); \
 			return INTERPRET_RUNTIME_ERROR; \
 		}\
-		double b = AS_NUMBER(pop()); \
+		double b = AS_NUMBER(pop(1)); \
 		Value* stackTop = vm.stackTop - 1; \
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop) op b; \
 	} while (false)
@@ -131,7 +131,22 @@ static InterpretResult run() {
 			case OP_NULL: push(NULL_VAL); break;
 			case OP_TRUE: push(BOOL_VAL(true)); break;
 			case OP_FALSE: push(BOOL_VAL(false)); break;
-			case OP_POP: pop(); break;
+			case OP_POP: pop(1); break;
+			case OP_POPN: {
+				uint8_t popCount = READ_BYTE();
+				pop(popCount);
+				break;
+			}
+			case OP_GET_LOCAL: {
+				uint8_t slot = READ_BYTE();
+				push(vm.stack.stack[slot]);
+				break;
+			}
+			case OP_SET_LOCAL: {
+				uint8_t slot = READ_BYTE();
+				vm.stack.stack[slot] = peek(0);
+				break;
+			}
 			case OP_GET_GLOBAL: {
 				ObjString* name = READ_STRING();
 				Value value;
@@ -145,7 +160,7 @@ static InterpretResult run() {
 			case OP_DEFINE_GLOBAL:
 				ObjString* name = READ_STRING();
 				tableSet(&vm.globals, &OBJ_KEY(name), peek(0));
-				pop();
+				pop(1);
 				break;
 			case OP_SET_GLOBAL:{
 				ObjString* name = READ_STRING();
@@ -157,39 +172,39 @@ static InterpretResult run() {
 				break;
 			}
 			case OP_EQUAL:
-				Value b = pop();
+				Value b = pop(1);
 				Value* aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesEqual(*aPtr, b));
 				break;
 			case OP_NOT_EQUAL:
-				b = pop();
+				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesNotEqual(*aPtr, b));
 				break;
 			// Make these work for non-number types as well
 			case OP_GREATER:
-				b = pop();
+				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesGreater(*aPtr, b));
 				break;
 			case OP_GREATER_EQUAL:
-				b = pop();
+				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesGreaterEqual(*aPtr, b));
 				break;
 			case OP_LESS:
-				b = pop();
+				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesLess(*aPtr, b));
 				break;
 			case OP_LESS_EQUAL:
-				b = pop();
+				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesLessEqual(*aPtr, b));
 				break;
 			case OP_TERNARY:
-				b = pop();
-				Value a = pop();
+				b = pop(1);
+				Value a = pop(1);
 				Value* conditional = vm.stackTop - 1;
 				*conditional = AS_BOOL(*conditional) ? a : b;
 				break;
@@ -197,7 +212,7 @@ static InterpretResult run() {
 				if(IS_STRING(peek(0)) && IS_STRING(peek(1))) {
 					concatenate();
 				} else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
-					double b = AS_NUMBER(pop());
+					double b = AS_NUMBER(pop(1));
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
 				} else {
@@ -210,7 +225,7 @@ static InterpretResult run() {
 			case OP_MULTIPLY: BINARY_OP(NUMBER_VAL, *); break;
 			case OP_DIVIDE: BINARY_OP(NUMBER_VAL, /); break;
 			case OP_NOT:
-				push(BOOL_VAL(isFalsey(pop())));
+				push(BOOL_VAL(isFalsey(pop(1))));
 				break;
 			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
@@ -224,7 +239,7 @@ static InterpretResult run() {
 				(AS_NUMBER(*valueToNegate)) = 0 - (AS_NUMBER(*valueToNegate)); break;
 			}
 			case OP_PRINT: {
-				printValue(pop());
+				printValue(pop(1));
 				printf("\n");
 				break;
 			}

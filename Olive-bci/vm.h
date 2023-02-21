@@ -32,6 +32,6 @@ void freeVM();
 InterpretResult interpret(const char* source);
 InterpretResult interpretREPL(const char* source);
 void push(Value value);
-Value pop();
+Value pop(uint8_t popCount);
 
 #endif
