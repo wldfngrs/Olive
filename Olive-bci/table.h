@@ -14,6 +14,7 @@ typedef struct {
 		double number;
 		ObjString* obj;
 	} as;
+	bool constant;
 } Key;
 
 typedef struct {

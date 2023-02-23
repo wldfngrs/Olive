@@ -44,6 +44,7 @@ typedef struct {
 typedef struct {
 	Token name;
 	int depth;
+	bool constant;
 } Local;
 
 typedef struct {
@@ -196,15 +197,30 @@ static void declaration();
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 
-static int identifierConstant(Token* name) {
+/* If the key is a new key, the value for the key on the table is set. If not, it just returns a boolean to signify a new key or not. (true == new key, false == old key)
+	For an old key, the the constness of 'value' has to be equal to the value returned at that index in the chunk's ValueArray. eg. if 'value' is 1 and it has a constness of 'true', the value returned at index 1 in the ValueArray has to be of constness 'true' else error.
+	*/
+
+static int identifierConstantDeclaration(Token* name, bool constant) {
 	ObjString* objString = allocateString(false, name->start, name->length);
+
 	if (tableSetGlobal(&vm.globalConstantIndex, &OBJ_KEY(objString), NUMBER_VAL(currentChunk()->constants.count))) {
-		return addConstant(currentChunk(), OBJ_VAL(objString));	
+		return addConstant(currentChunk(), OBJ_VAL(objString), constant);	
 	} else {
 		Value constantIndex;
 		tableGet(&vm.globalConstantIndex, &OBJ_KEY(objString), &constantIndex);
+		if (currentChunk()->constants.values[(int)AS_NUMBER(constantIndex)].constant != constant) {
+			error("Attempt to re-declare variable type qualifier.");
+		}
 		return (int)AS_NUMBER(constantIndex);
 	}
+}
+
+static int identifierConstantSetGet(Token* name) {
+	ObjString* objString = allocateString(false, name->start, name->length);
+	Value constantIndex;
+	tableGet(&vm.globalConstantIndex, &OBJ_KEY(objString), &constantIndex);
+	return (int)AS_NUMBER(constantIndex);
 }
 
 static bool identifiersEqual(Token* a, Token* b) {
@@ -217,7 +233,7 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 		Local* local = &compiler->locals[i];
 		if (identifiersEqual(name, &local->name)) {
 			if (local->depth == -1) {
-				error("Attempting to read local variable in its own initializer.");
+				error("Attempt to read local variable in its own initializer.");
 			}
 			return i;
 		}
@@ -226,7 +242,7 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 	return -1;
 }
 
-static void addLocal(Token name) {
+static void addLocal(Token name, bool constant) {
 	if (current->localCount == SCOPE_COUNT) {
 		error("Too many local variables in function.");
 		return;
@@ -235,13 +251,15 @@ static void addLocal(Token name) {
 	Local* local = &current->locals[current->localCount++];
 	local->name = name;
 	local->depth = -1;
+	local->constant = constant;
 }
 
-static void declareVariable() {
+static void declareVariable(bool constant) {
 	// Global variables are implicitly declared.
 	if (current->scopeDepth == 0) return;
 	
 	Token* name = &parser.previous;
+	
 	for (int i = current->localCount - 1; i >= 0; i--) {
 		Local* local = &current->locals[i];
 		if (local->depth != -1 && local->depth < current->scopeDepth) {
@@ -249,20 +267,24 @@ static void declareVariable() {
 		}
 		
 		if (identifiersEqual(name, &local->name)) {
+			if (local->constant != constant) {
+				error("Attempt to re-declare variable type qualifier.");
+			}
 			error("Variable re-definition within scope.");
 		}
 	}
 	
-	addLocal(*name);
+	
+	addLocal(*name, constant);
 }
 
-static int parseVariable(const char* errorMessage) {
+static int parseVariable(const char* errorMessage, bool constant) {
 	consume(TOKEN_IDENTIFIER, errorMessage);
 	
-	declareVariable();
+	declareVariable(constant);
 	if (current->scopeDepth > 0) return 0;
 	
-	return identifierConstant(&parser.previous);
+	return identifierConstantDeclaration(&parser.previous, constant);
 }
 
 static int markInitialized() {
@@ -340,18 +362,25 @@ static void string(bool canAssign) {
 static void namedVariable(Token name, bool canAssign) {
 	uint8_t getOp, setOp;
 	int arg = resolveLocal(current, &name);
+	bool global;
 	if (arg != -1) {
+		global = false;
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
 	} else {
-		arg = identifierConstant(&name);
+		global = true;
+		arg = identifierConstantSetGet(&name);
 		getOp = OP_GET_GLOBAL;
 		setOp = OP_SET_GLOBAL;
 	}
 	
 	if (canAssign && match(TOKEN_EQUAL)) {
 		expression();
-		emitOpAndConstant(setOp, (uint8_t)arg);
+		if (currentChunk()->constants.values[arg].constant == true && global) {
+			error("Attempt to re-assign variable declared with type qualifier 'Const'.");
+		} else if (current->locals[arg].constant = true && !global) {
+			error("Attempt to re-assign variable declared with type qualifier 'Const'.");
+		} else emitOpAndConstant(setOp, (uint8_t)arg);
 	} else {
 		emitOpAndConstant(getOp, (uint8_t)arg);
 	}
@@ -456,8 +485,8 @@ static void block() {
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
-static void varDeclaration() {
-	int global = parseVariable("Expect variable name.");
+static void varDeclaration(bool constant) {
+	int global = parseVariable("Expect variable name.", constant);
 	
 	if (match(TOKEN_EQUAL)) {
 		expression();
@@ -508,12 +537,16 @@ static void synchronize() {
 
 static void declaration() {
 	if (match(TOKEN_VAR)) {
-		varDeclaration();
+		varDeclaration(false);
 	} else {
 		statement();
 	}
 	
 	if (parser.panicMode) synchronize();
+}
+
+static void constDeclaration() {
+	varDeclaration(true);
 }
 
 static void statement() {
@@ -523,6 +556,8 @@ static void statement() {
 		beginScope();
 		block();
 		endScope();
+	} else if (match(TOKEN_CONST)) {
+		constDeclaration();
 	} else {
 		expressionStatement();
 	}

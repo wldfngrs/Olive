@@ -53,7 +53,7 @@ void initChunk(Chunk* chunk);
 void freeChunk(Chunk* chunk);
 void freeChunkButNotValueArray(Chunk* chunk);
 void writeChunk(Chunk* chunk, uint8_t bytes, int line);
-int addConstant(Chunk* chunk, Value value);
+int addConstant(Chunk* chunk, Value value, bool constness);
 void writeConstant(Chunk* chunk, Value value, int line);
 int getLine(Chunk* chunk, int instructionIndex);
 void clearLineInfo();

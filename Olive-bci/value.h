@@ -20,6 +20,7 @@ typedef struct {
 		double number;
 		Obj* obj;
 	} as;
+	bool constant;
 } Value;
 
 #define IS_BOOL(value)		((value).type == VAL_BOOL)
