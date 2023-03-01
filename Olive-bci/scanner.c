@@ -76,6 +76,8 @@ static Token errorToken(const char* message) {
 	return token;
 }
 
+bool newLine = false;
+
 static void skipWhitespace() {
 	for(;;) {
 		char c = peek();
@@ -86,9 +88,9 @@ static void skipWhitespace() {
 				advance();
 				break;
 			case '\n':
-				scanner.line++;
-				advance();
-				break;
+				// change made here
+				newLine = true;
+				return;
 			case '/':
 				if (peekNext() == '/') {
 					while(peek() != '\n' && !isAtEnd()) advance();
@@ -96,7 +98,12 @@ static void skipWhitespace() {
 				} else if (peekNext() == '*') {
 					advance(); //skip past '/'
 					advance(); // skip past '*'
-					while(peek() != '*' && peekNext() != '/' && !isAtEnd()) advance();
+					while(peek() != '*' && peekNext() != '/' && !isAtEnd()) {
+						if (peek() == '\n') {
+							scanner.line++;
+						}
+						advance();
+					}
 					advance(); // skip past '*'
 					advance(); // skip past '/'
 					break;
@@ -120,15 +127,33 @@ static TokenType checkKeyword(int start, int length, const char* rest, TokenType
 static TokenType identifierType() {
 	switch(scanner.start[0]) {
 		case 'a': return checkKeyword(1,2, "nd", TOKEN_AND);
-		case 'b': return checkKeyword(1,3, "ase", TOKEN_BASE);
+		case 'b': 
+			if (scanner.current - scanner.start > 1) {
+				switch(scanner.start[1]) {
+					case 'a': return checkKeyword(2,2, "se", TOKEN_BASE);
+					case 'r': return checkKeyword(2,3, "eak", TOKEN_BREAK);
+				}
+			}
+			break;
+		return checkKeyword(1,3, "ase", TOKEN_BASE);
 		case 'c': 
 			if (scanner.current - scanner.start > 1) {
 				switch(scanner.start[1]) {
 					case 'o': return checkKeyword(2,3,"nst", TOKEN_CONST);
 					case 'l': return checkKeyword(2,3, "ass", TOKEN_CLASS);
+					case 'a': return checkKeyword(2,2, "se", TOKEN_SWITCHCASE);
 				}
 			}
-		case 'd': return checkKeyword(1,2, "ef", TOKEN_DEF);
+			break;
+		case 'd':
+			if (scanner.current - scanner.start > 1) {
+				if (scanner.start[3] == 'a') {
+					return checkKeyword(3,4, "ault", TOKEN_SWITCHDEFAULT);
+				} else if (scanner.start[1] == 'e') {
+					return checkKeyword(1,2, "ef", TOKEN_DEF);
+				}
+			}
+			break;
 		case 'e': return checkKeyword(1,3, "lse", TOKEN_ELSE);
 		case 'f':
 			if (scanner.current - scanner.start > 1) {
@@ -137,11 +162,13 @@ static TokenType identifierType() {
 					case 'o': return checkKeyword(2,1,"r", TOKEN_FOR);
 				}
 			}
+			break;
 		case 'i': return checkKeyword(1,1, "f", TOKEN_IF);
 		case 'n': return checkKeyword(1,3, "ull", TOKEN_NULL);
 		case 'O': return checkKeyword(1,1, "or", TOKEN_OR);
 		case 'p': return checkKeyword(1,4, "rint", TOKEN_PRINT);
 		case 'r': return checkKeyword(1,5, "eturn", TOKEN_RETURN);
+		case 's': return checkKeyword(1,5, "witch", TOKEN_SWITCH);
 		case 't':
 			if (scanner.current - scanner.start > 1) {
 				switch(scanner.start[1]) {
@@ -149,6 +176,7 @@ static TokenType identifierType() {
 					case 'r': return checkKeyword(2,2,"ue", TOKEN_TRUE);
 				}
 			}
+			break;
 		case 'v': return checkKeyword(1,2, "ar", TOKEN_VAR);
 		case 'w': return checkKeyword(1,4, "hile", TOKEN_WHILE);	
 	}
@@ -203,8 +231,18 @@ static Token number() {
 	return makeToken(TOKEN_NUMBER);
 }
 
+
+// TODO: scan user enforced new line characters. That is, when the user types '\' and 'n'.
 Token scanToken() {
 	skipWhitespace();
+	if (newLine) {
+		newLine = false;
+		Token newLineToken = makeToken(TOKEN_NEWLINE);
+		scanner.line++;
+		advance();
+		return newLineToken;
+	}
+	
 	scanner.start = scanner.current;
 	
 	if (isAtEnd()) return makeToken(TOKEN_EOF);

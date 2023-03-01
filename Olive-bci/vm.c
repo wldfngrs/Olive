@@ -13,6 +13,8 @@
 VM vm;
 Chunk chunkREPL;
 
+bool switchFallThrough = false;
+
 static void resetStack() {
 	initStack(&vm.stack);
 	vm.stackTop = vm.stack.stack;
@@ -57,10 +59,16 @@ void push(Value value) {
 	
 	*vm.stackTop = value;
 	vm.stackTop++;
+	vm.stack.count++;
 }
 
 Value pop(uint8_t popCount) {
+	if (vm.stack.count == 0) {
+		return *vm.stackTop;
+	}
+	
 	vm.stackTop -= popCount;
+	vm.stack.count -= popCount;
 	return *vm.stackTop;
 }
 
@@ -70,6 +78,10 @@ static Value peek(int distance) {
 
 static bool isFalsey(Value value) {
 	return IS_NULL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+static bool isTruthy(Value value) {
+	return IS_NULL(value) || (IS_BOOL(value) && AS_BOOL(value));
 }
 
 static void concatenate() {
@@ -92,6 +104,8 @@ static InterpretResult run() {
 #define READ_LONG_CONSTANT() (vm.chunk->constants.values[vm.chunk->code[(int)(vm.ip - vm.chunk->code)+1] |\
 			      vm.chunk->code[(int)(vm.ip - vm.chunk->code)+2] << 8 |\
 			      vm.chunk->code[(int)(vm.ip - vm.chunk->code)+3] << 16])
+#define READ_SHORT() \
+	(vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 
 #define BINARY_OP(valueType, op)\
@@ -176,6 +190,15 @@ static InterpretResult run() {
 				Value* aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesEqual(*aPtr, b));
 				break;
+			case OP_SWITCH_EQUAL:
+				aPtr = vm.stackTop - 1;
+				if (switchFallThrough) {
+					*aPtr = BOOL_VAL(true);
+					switchFallThrough = false;
+				} else {
+					*aPtr = BOOL_VAL(valuesEqual(*aPtr, *(aPtr - 1)));
+				}
+				break;
 			case OP_NOT_EQUAL:
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
@@ -243,6 +266,47 @@ static InterpretResult run() {
 				printf("\n");
 				break;
 			}
+			case OP_JUMP: {
+				uint16_t offset = READ_SHORT();
+				vm.ip += offset;
+				break;
+			}
+			case OP_JUMP_IF_FALSE: {
+				uint8_t offset = READ_SHORT();
+				if(isFalsey(peek(0))) vm.ip += offset;
+				break;
+			}
+			case OP_LOOP: {
+				uint16_t offset = READ_SHORT();
+				vm.ip -= offset;
+				break;
+			}
+			/*case OP_BREAK: {
+				Value breakVal;
+				breakVal.type = VAL_BREAK;
+				push(breakVal);
+				break;
+			}
+			case OP_JUMP_IF_BREAK: {
+				uint16_t offset = READ_SHORT();
+				if(peek(0).type == VAL_BREAK) {
+					vm.ip += offset;
+				}
+				
+				break;
+			}*/
+			
+			case OP_BREAK: {
+				uint16_t offset = READ_SHORT();
+				vm.ip += offset;
+				break;
+			}
+			
+			case OP_FALLTHROUGH: {
+				switchFallThrough = true;
+				break;
+			}
+			
 			case OP_RETURN: {
 				return INTERPRET_OK;
 			}
@@ -251,6 +315,7 @@ static InterpretResult run() {
 #undef READ_BYTE
 #undef READ_CONSTANT
 #undef READ_LONG_CONSTANT
+#undef READ_SHORT
 #undef READ_STRING
 #undef BINARY_OP
 }

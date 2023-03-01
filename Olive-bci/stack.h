@@ -9,8 +9,8 @@ typedef struct {
 	Value* stack;	
 } Stack;
 
-void initStack();
-void freeStack();
+void initStack(Stack* stack);
+void freeStack(Stack* stack);
 void growStack(Stack* stack);
 
 #endif
