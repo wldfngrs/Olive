@@ -772,7 +772,6 @@ static void switchStatement() {
 	int jumpPresentCase = 0;
 	breakExit exits;
 	initBreakExit(&exits);
-	bool breakStatement = true;
 	
 	for(int i = 0;;i++) {
 		if ((parser.current.type == TOKEN_RIGHT_BRACE) || (parser.current.type == TOKEN_SWITCHDEFAULT)) {
@@ -784,8 +783,7 @@ static void switchStatement() {
 		withinLoopOrSwitch = true;
 		
 		emitByte(OP_SWITCH_EQUAL);
-		
-		// don't emit jump if break was not met in previous case
+	
 		jumpPresentCase = emitJump(OP_JUMP_IF_FALSE);
 		
 		emitByte(OP_POP); // pop true off stack
@@ -803,7 +801,6 @@ static void switchStatement() {
 		
 		if (breakGlobal == 1) {
 			breakGlobal = 0;
-			breakStatement = true;
 		} else {
 			emitByte(OP_FALLTHROUGH);
 		}
@@ -817,7 +814,7 @@ static void switchStatement() {
 		patchJump(jumpPop);
 	}
 	
-	/*consumeIf(TOKEN_SWITCHDEFAULT);
+	consumeIf(TOKEN_SWITCHDEFAULT);
 	if (parser.previous.type == TOKEN_SWITCHDEFAULT) {
 		breakGlobal = 0;
 		int exitDefault;
@@ -828,13 +825,16 @@ static void switchStatement() {
 		} else {
 			while(!scannedPastNewLine) {
 				declaration(&exits);
-				if (breakGlobal == 0) {
-					breakGlobal = 0;
+				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
 				}
 			}
 		}
-	}*/
+		
+		if (breakGlobal == 1) {
+			breakGlobal = 0;
+		}
+	}
 	
 	for (int i = 0; i < exits.count; i++) {
 		patchJump(exits.exits[i]);
