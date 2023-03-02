@@ -6,13 +6,14 @@
 #include "compiler.h"
 #include "scanner.h"
 #include "chunk.h"
-#include "breakExit.h"
+#include "control.h"
 
 #ifdef DEBUG_PRINT_CODE
 #include "debug.h"
 #endif
 
 bool withinLoopOrSwitch = false;
+bool withinLoop = false;
 bool scannedPastNewLine = false;
 int breakGlobal = 0; // 0 if break not executed.
 
@@ -172,6 +173,16 @@ static void emitLoop(int loopStart) {
 	emitByte(OP_LOOP);
 	
 	int offset = currentChunk()->count - loopStart + 2;
+	if(offset > UINT16_MAX) error("Loop body too large.");
+	
+	emitByte((offset >> 8) & 0xff);
+	emitByte(offset & 0xff);
+}
+
+static void emitContinue(int continueStart) {
+	emitByte(OP_CONTINUE);
+	
+	int offset = currentChunk()->count - continueStart + 2;
 	if(offset > UINT16_MAX) error("Loop body too large.");
 	
 	emitByte((offset >> 8) & 0xff);
@@ -463,9 +474,9 @@ static void namedVariable(Token name, bool canAssign) {
 	if (canAssign && match(TOKEN_EQUAL)) {
 		expression();
 		if (currentChunk()->constants.values[arg].constant == true && global) {
-			error("Attempt to re-assign variable declared with type qualifier 'Const'.");
+			error("Attempt to re-assign variable declared with type qualifier 'const'.");
 		} else if (current->locals[arg].constant == true && !global) {
-			error("Attempt to re-assign variable declared with type qualifier 'Const'.");
+			error("Attempt to re-assign variable declared with type qualifier 'const'.");
 		} else emitOpAndConstant(setOp, (uint8_t)arg);
 	} else {
 		emitOpAndConstant(getOp, (uint8_t)arg);
@@ -498,19 +509,15 @@ static void defaultError(bool canAssign) {
 }
 
 static void breakError(bool canAssign) {
-	error("'break' token not within loop or switch.");
+	error("'break' token not within loop or switch statement.");
+}
+
+static void continueError(bool canAssign) {
+	error("'continue' token not within loop statement.");
 }
 
 static void parenError(bool canAssign) {
 	error("Statement expected before ')' token.");
-}
-
-static void block();
-
-static void leftBrace(bool canAssign) {
-	beginScope();
-	block();
-	endScope();
 }
 
 static void braceError(bool canAssign) {
@@ -520,7 +527,7 @@ static void braceError(bool canAssign) {
 ParseRule rules[] = {
 	[TOKEN_LEFT_PAREN]= {grouping,NULL,PREC_NONE},
 	[TOKEN_RIGHT_PAREN]= {parenError,NULL,PREC_NONE},
-	[TOKEN_LEFT_BRACE]= {leftBrace,NULL,PREC_NONE},
+	[TOKEN_LEFT_BRACE]= {NULL,NULL,PREC_NONE},
 	[TOKEN_RIGHT_BRACE]= {braceError,NULL,PREC_NONE},
 	[TOKEN_COMMA]= {NULL,NULL,PREC_NONE},
 	[TOKEN_DOT]= {NULL,NULL,PREC_NONE},
@@ -561,6 +568,7 @@ ParseRule rules[] = {
 	[TOKEN_SWITCHCASE] = {caseError,NULL,PREC_NONE},
 	[TOKEN_SWITCHDEFAULT] = {defaultError, NULL, PREC_NONE},
 	[TOKEN_BREAK] = {breakError, NULL, PREC_NONE},
+	[TOKEN_CONTINUE] = {continueError, NULL, PREC_NONE},
 	[TOKEN_CONST] = {NULL, NULL, PREC_NONE},
 	[TOKEN_EOF]= {NULL,NULL,PREC_NONE},
 };
@@ -607,9 +615,9 @@ static void continueParsingOnBreak2() {
 	}
 }
 
-static void block(breakExit* be) {
+static void block(controlFlow* controls) {
 	while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
-		declaration(be);
+		declaration(controls);
 		if (breakGlobal == 1) {
 			continueParsingOnBreak2();
 		}	
@@ -637,13 +645,18 @@ static void expressionStatement() {
 	emitByte(OP_POP);
 }
 
-static void breakStatement(breakExit* exits) {
-	if (exits->capacity < exits->count + 1) {
-		growBreakExit(exits);
+static void breakStatement(controlFlow* controls) {
+	if (controls->capacity < controls->count + 1) {
+		growControlFlow(controls);
 	}
-	exits->exits[exits->count++] = emitJump(OP_BREAK);
+	controls->exits[controls->count++] = emitJump(OP_BREAK);
 	breakGlobal = 1;
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'break' statement.");
+}
+
+static void continueStatement(controlFlow* controls) {
+	emitContinue(controls->continuePoint);
+	consume(TOKEN_SEMICOLON, "Expect ';' after 'continue' statement.");
 }
 
 static void forStatement() {
@@ -659,8 +672,8 @@ static void forStatement() {
 
 	int loopStart = currentChunk()->count;
 	int exitJump = -1;
-	breakExit exits;
-	initBreakExit(&exits);
+	controlFlow controls;
+	initControlFlow(&controls);
 	
 	if (!match(TOKEN_SEMICOLON)) {
 		expression();
@@ -675,6 +688,7 @@ static void forStatement() {
 		int bodyJump = emitJump(OP_JUMP);
 		
 		int incrementStart = currentChunk()->count;
+		controls.continuePoint = incrementStart;
 		expression();
 		emitByte(OP_POP);
 		consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'for' clauses.");
@@ -685,12 +699,13 @@ static void forStatement() {
 	}
 	
 	withinLoopOrSwitch = true;
+	withinLoop = true;
 	
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
-		declaration(&exits);
+		declaration(&controls);
 	} else {
 		while(!scannedPastNewLine) {
-			declaration(&exits);
+			declaration(&controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
 			}
@@ -706,17 +721,18 @@ static void forStatement() {
 	emitByte(OP_POP);
 	patchJump(jumpPop);
 	
-	for (int i = 0; i < exits.count; i++) {
-		patchJump(exits.exits[i]);
+	for (int i = 0; i < controls.count; i++) {
+		patchJump(controls.exits[i]);
 	}
 	
 	endScope();
 	withinLoopOrSwitch = false;
-	freeBreakExit(&exits);
+	withinLoop = false;
+	freeControlFlow(&controls);
 }
 
 
-static void ifStatement(breakExit* exits) {
+static void ifStatement(controlFlow* controls) {
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
 	expression();
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
@@ -725,10 +741,10 @@ static void ifStatement(breakExit* exits) {
 	emitByte(OP_POP);
 	
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
-			declaration(exits);
+			declaration(controls);
 	} else {
 		while(!scannedPastNewLine) {
-			declaration(exits);
+			declaration(controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
 			}
@@ -744,10 +760,10 @@ static void ifStatement(breakExit* exits) {
 	
 	if (match(TOKEN_ELSE)) {
 		if (parser.current.type == TOKEN_LEFT_BRACE) 	{
-			declaration();
+			declaration(controls);
 		} else {
 			while(!scannedPastNewLine) {
-				declaration();
+				declaration(controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
 				}
@@ -770,8 +786,8 @@ static void switchStatement() {
 	beginScope();
 
 	int jumpPresentCase = 0;
-	breakExit exits;
-	initBreakExit(&exits);
+	controlFlow controls;
+	initControlFlow(&controls);
 	
 	for(int i = 0;;i++) {
 		if ((parser.current.type == TOKEN_RIGHT_BRACE) || (parser.current.type == TOKEN_SWITCHDEFAULT)) {
@@ -789,10 +805,10 @@ static void switchStatement() {
 		emitByte(OP_POP); // pop true off stack
 		
 		if (parser.current.type == TOKEN_LEFT_BRACE) {
-			declaration(&exits);
+			declaration(&controls);
 		} else {
 			while(!scannedPastNewLine) {
-				declaration(&exits);
+				declaration(&controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
 				}
@@ -816,15 +832,15 @@ static void switchStatement() {
 	
 	consumeIf(TOKEN_SWITCHDEFAULT);
 	if (parser.previous.type == TOKEN_SWITCHDEFAULT) {
-		breakGlobal = 0;
+		//breakGlobal = 0;
 		int exitDefault;
 		consume(TOKEN_COLON, "Expect ':' after 'default' token");
 		
 		if (parser.current.type == TOKEN_LEFT_BRACE) {
-			declaration(&exits);
+			declaration(&controls);
 		} else {
 			while(!scannedPastNewLine) {
-				declaration(&exits);
+				declaration(&controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
 				}
@@ -836,8 +852,8 @@ static void switchStatement() {
 		}
 	}
 	
-	for (int i = 0; i < exits.count; i++) {
-		patchJump(exits.exits[i]);
+	for (int i = 0; i < controls.count; i++) {
+		patchJump(controls.exits[i]);
 	}
 	
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' to close 'switch' statement.");
@@ -846,7 +862,7 @@ static void switchStatement() {
 	
 	withinLoopOrSwitch = false;
 	
-	freeBreakExit(&exits);
+	freeControlFlow(&controls);
 }
 
 static void printStatement() {
@@ -859,9 +875,11 @@ static void whileStatement() {
 	int breakJump = 0;
 	
 	withinLoopOrSwitch = true;
+	withinLoop = true;
 	int loopStart = currentChunk()->count;
-	breakExit exits;
-	initBreakExit(&exits);
+	controlFlow controls;
+	initControlFlow(&controls);
+	controls.continuePoint = loopStart;
 	int exitIndex = 0;
 	
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while' statement.");
@@ -869,33 +887,32 @@ static void whileStatement() {
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 	
 	int exitJump = emitJump(OP_JUMP_IF_FALSE);
-	
 	emitByte(OP_POP);
+	
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
-		declaration(&exits);
+		declaration(&controls);
 	} else {
 		while(!scannedPastNewLine) {
-			declaration(&exits);
+			declaration(&controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
 			}
 		}
 	}
 	
-	if (breakGlobal == 1) {
-		breakGlobal = 0;
-	}
+	if (breakGlobal == 1) breakGlobal = 0;
 	
 	emitLoop(loopStart);
 	
-	for (int i = 0; i < exits.count; i++) {
-		patchJump(exits.exits[i]);
+	for (int i = 0; i < controls.count; i++) {
+		patchJump(controls.exits[i]);
 	}
 	
 	patchJump(exitJump);
 	emitByte(OP_POP);
 	withinLoopOrSwitch = false;
-	freeBreakExit(&exits);
+	withinLoop = false;
+	freeControlFlow(&controls);
 }
 
 static void synchronize() {
@@ -925,11 +942,11 @@ static void synchronize() {
 
 // The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
 
-static void declaration(breakExit* be) {
+static void declaration(controlFlow* controls) {
 	if (match(TOKEN_VAR)) {
 		varDeclaration(false);
 	} else {
-		statement(be);
+		statement(controls);
 	}
 	
 	if (parser.panicMode) synchronize();
@@ -941,23 +958,26 @@ static void constDeclaration() {
 
 // The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
 
-static void statement(breakExit* be) {
+static void statement(controlFlow* controls) {
 	if(match(TOKEN_PRINT)) {
 		printStatement();
 	} else if (match(TOKEN_BREAK)) {
 		if (!withinLoopOrSwitch) breakError(false);
-		breakStatement(be);
+		breakStatement(controls);
+	} else if (match(TOKEN_CONTINUE)) {
+		if (!withinLoop) continueError(false);
+		continueStatement(controls);
 	} else if (match(TOKEN_FOR)) {
 		forStatement();
 	} else if (match(TOKEN_IF)) {
-		ifStatement(be);
+		ifStatement(controls);
 	} else if (match(TOKEN_SWITCH)) {
 		switchStatement();
 	} else if (match(TOKEN_WHILE)) {
 		whileStatement();
 	} else if (match(TOKEN_LEFT_BRACE)) {
 		beginScope();
-		block(be);
+		block(controls);
 		endScope();
 	} else if (match(TOKEN_CONST)) {
 		constDeclaration();
@@ -971,14 +991,14 @@ bool compile(const char* source, Chunk* chunk) {
 	Compiler compiler;
 	initCompiler(&compiler);
 	compilingChunk = chunk;
-	breakExit* be;
+	controlFlow* controls;
 	
 	parser.hadError = false;
 	parser.panicMode = false;
 	advance();
 	
 	while (!match(TOKEN_EOF)) {
-		declaration(be);
+		declaration(controls);
 	}
 	
 	endCompiler();

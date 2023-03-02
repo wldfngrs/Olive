@@ -44,6 +44,7 @@ typedef enum {
 	OP_BREAK,
 	//OP_JUMP_IF_BREAK,
 	OP_FALLTHROUGH,
+	OP_CONTINUE,
 	OP_RETURN,
 } OpCode;
 

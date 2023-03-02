@@ -1,16 +1,7 @@
-var a = 2;
-
-switch(a) {
-	case 1: {
-		print 1;
-	}
-	case 2: {
-		print 2;
-	}
-	case 3: {
-		print 3;
-		break;
+for (var a = 0; a < 10; a = a + 1) {
+	if (a == 5) {
+		continue;
 	}
 	
-	default: print a;
+	print a;
 }

@@ -139,19 +139,23 @@ static TokenType identifierType() {
 		case 'c': 
 			if (scanner.current - scanner.start > 1) {
 				switch(scanner.start[1]) {
-					case 'o': return checkKeyword(2,3,"nst", TOKEN_CONST);
+					case 'o': {
+						if ((scanner.current - scanner.start) == 5) {
+							return checkKeyword(2,3,"nst", TOKEN_CONST);	
+						} else if ((scanner.current - scanner.start) == 8) {
+							return checkKeyword(2,6, "ntinue", TOKEN_CONTINUE);
+						}
+					}
 					case 'l': return checkKeyword(2,3, "ass", TOKEN_CLASS);
 					case 'a': return checkKeyword(2,2, "se", TOKEN_SWITCHCASE);
 				}
 			}
 			break;
 		case 'd':
-			if (scanner.current - scanner.start > 1) {
-				if (scanner.start[3] == 'a') {
-					return checkKeyword(3,4, "ault", TOKEN_SWITCHDEFAULT);
-				} else if (scanner.start[1] == 'e') {
-					return checkKeyword(1,2, "ef", TOKEN_DEF);
-				}
+			if ((scanner.current - scanner.start) == 3) {
+				return checkKeyword(1,2, "ef", TOKEN_DEF);
+			} else if ((scanner.current - scanner.start) == 7) {
+				return checkKeyword(1,6, "efault", TOKEN_SWITCHDEFAULT);
 			}
 			break;
 		case 'e': return checkKeyword(1,3, "lse", TOKEN_ELSE);
