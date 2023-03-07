@@ -3,18 +3,33 @@
 
 #include "chunk.h"
 #include "stack.h"
+#include "object.h"
 #include "table.h"
 
+#define FRAMES_MAX 64
+
 #define STACK_MAX 256
+#define NATIVE_ID_MAX 10
 
 typedef struct {
-	Chunk* chunk;
+	ObjFunction* function;
 	uint8_t* ip;
+	Value* slots;
+} CallFrame;
+
+typedef struct {
+	//Chunk* chunk;
+	//uint8_t* ip;
+	CallFrame frames[FRAMES_MAX];
+	int frameCount;
+	
 	Stack stack;
 	Value* stackTop;
 	Table globals;
 	Table strings;
 	Table globalConstantIndex; // probably find a better name
+	int nativeIdentifierCount;
+	const char* nativeIdentifiers[NATIVE_ID_MAX];
 	Obj* objects;
 } VM;
 

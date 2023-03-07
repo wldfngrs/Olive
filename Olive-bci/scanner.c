@@ -49,6 +49,12 @@ static char peekNext() {
 	return scanner.current[1];
 }
 
+static bool endMLComment() {	// end multi-line comment
+	if (*scanner.current == '*' && *(scanner.current + 1) == '/') {
+		return true;
+	} else false;
+}
+
 static bool match(char expected) {
 	if(isAtEnd()) return false;
 	if(*scanner.current != expected) return false;
@@ -98,7 +104,7 @@ static void skipWhitespace() {
 				} else if (peekNext() == '*') {
 					advance(); //skip past '/'
 					advance(); // skip past '*'
-					while(peek() != '*' && peekNext() != '/' && !isAtEnd()) {
+					while(!endMLComment() && !isAtEnd()) {
 						if (peek() == '\n') {
 							scanner.line++;
 						}

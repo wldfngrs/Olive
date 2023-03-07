@@ -28,12 +28,16 @@ static Entry* findEntry(Entry* entries, int capacity, Key* key) {
 	switch(keyAsValue->type) {
 		case VAL_BOOL:
 			index = (AS_BOOL(*keyAsValue) == true ? 1 : 0) % capacity;
+			break;
 		case VAL_NULL:
 			index = 0;
+			break;
 		case VAL_NUMBER:
 			index = (int)AS_NUMBER(*keyAsValue) % capacity;
+			break;
 		case VAL_OBJ:
 			index = AS_STRING(*keyAsValue)->hash % capacity;
+			break;
 	}
 	
 	Entry* tombstone = NULL;

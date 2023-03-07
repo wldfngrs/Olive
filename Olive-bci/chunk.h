@@ -41,6 +41,7 @@ typedef enum {
 	OP_JUMP,
 	OP_JUMP_IF_FALSE,
 	OP_LOOP,
+	OP_CALL,
 	OP_BREAK,
 	//OP_JUMP_IF_BREAK,
 	OP_FALLTHROUGH,
@@ -54,10 +55,10 @@ typedef struct {
 	uint8_t* code;
 	int* lineArr;
 	int* codeArr;
-	ValueArray constants;
+	ValueArray* constants;
 } Chunk;
 
-void initChunk(Chunk* chunk);
+void initChunk(Chunk* chunk, ValueArray* constants);
 void freeChunk(Chunk* chunk);
 void freeChunkButNotValueArray(Chunk* chunk);
 void writeChunk(Chunk* chunk, uint8_t bytes, int line);

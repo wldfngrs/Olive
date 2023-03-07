@@ -53,11 +53,22 @@ typedef struct {
 	bool constant;
 } Local;
 
-typedef struct {
+typedef enum {
+	TYPE_FUNCTION,
+	TYPE_SCRIPT,
+} FunctionType;
+
+struct Compiler {
+	struct Compiler* enclosing;
+	ObjFunction* function;
+	FunctionType type;
+
 	Local locals[SCOPE_COUNT];
 	int localCount;
 	int scopeDepth;
-} Compiler;
+};
+
+typedef struct Compiler Compiler;
 
 Parser parser;
 
@@ -66,7 +77,14 @@ Compiler* current = NULL; // page 394. modify for "principled engineers"
 Chunk* compilingChunk;
 
 static Chunk* currentChunk() {
-	return compilingChunk;
+	return &current->function->chunk;
+}
+
+char returnString[256];
+
+static char* trim (const char* string, int trimLength) {;
+	strncpy(returnString, string, trimLength);
+	return returnString;
 }
 
 static void errorAt(Token* token, const char* message) {
@@ -197,6 +215,7 @@ static int emitJump(uint8_t instruction) {
 }
 
 static void emitReturn() {
+	emitByte(OP_NULL);
 	emitByte(OP_RETURN);
 }
 /*
@@ -221,10 +240,24 @@ static void patchJump(int offset) {
 	currentChunk()->code[offset + 1] = jump & 0xff;
 }
 
-static void initCompiler(Compiler* compiler) {
+static void initCompiler(Compiler* compiler, FunctionType type, ValueArray* constants) {
+	compiler->enclosing = current;
+	compiler->function = NULL;
+	compiler->type = type;
 	compiler->localCount = 0;
 	compiler->scopeDepth = 0;
+	compiler->function = newFunction(constants);
 	current = compiler;
+	
+	if (type != TYPE_SCRIPT) {
+		current->function->name = allocateString(false, parser.previous.start, parser.previous.length);
+	}
+
+	Local* local = &current->locals[current->localCount++];
+	local->depth = 0;
+	local->name.start = "";
+	local->name.length = 0;
+	clearLineInfo();
 }
 
 static void emitOpAndConstant(uint8_t byte, int constant) {
@@ -238,13 +271,19 @@ static void emitOpAndConstant(uint8_t byte, int constant) {
 	}
 }
 
-static void endCompiler() {
+static ObjFunction* endCompiler() {
 	emitReturn();
+	ObjFunction* function = current->function;
+	
 #ifdef DEBUG_PRINT_CODE
 	if(!parser.hadError) {
-		disassembleChunk(currentChunk(), "code");
+		disassembleChunk(currentChunk(), function->name != NULL ? trim(function->name->chars, function->name->length) : "<script>");
 	}
 #endif
+	
+	current = current->enclosing;
+	clearLineInfo();
+	return function;
 }
 
 static void beginScope() {
@@ -278,12 +317,12 @@ static void parsePrecedence(Precedence precedence);
 static int identifierConstantDeclaration(Token* name, bool constant) {
 	ObjString* objString = allocateString(false, name->start, name->length);
 
-	if (tableSetGlobal(&vm.globalConstantIndex, &OBJ_KEY(objString), NUMBER_VAL(currentChunk()->constants.count))) {
+	if (tableSetGlobal(&vm.globalConstantIndex, &OBJ_KEY(objString), NUMBER_VAL(currentChunk()->constants->count))) {
 		return addConstant(currentChunk(), OBJ_VAL(objString), constant);	
 	} else {
 		Value constantIndex;
 		tableGet(&vm.globalConstantIndex, &OBJ_KEY(objString), &constantIndex);
-		if (currentChunk()->constants.values[(int)AS_NUMBER(constantIndex)].constant != constant) {
+		if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].constant != constant) {
 			error("Attempt to re-declare variable type qualifier.");
 		}
 		return (int)AS_NUMBER(constantIndex);
@@ -364,7 +403,8 @@ static int parseVariable(const char* errorMessage, bool constant) {
 	return identifierConstantDeclaration(&parser.previous, constant);
 }
 
-static int markInitialized() {
+static void markInitialized() {
+	if (current->scopeDepth == 0) return;
 	current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
@@ -375,6 +415,24 @@ static void defineVariable(int global) {
 	}
 	
 	emitOpAndConstant(OP_DEFINE_GLOBAL, global);
+}
+
+static uint8_t argumentList() {
+	uint8_t argCount = 0;
+	if (!check(TOKEN_RIGHT_PAREN)) {
+		do {
+			expression();
+			
+			// TODO: increase count
+			if (argCount == 255) {
+				error("Can't have more than 255 arguments.");
+			}
+			argCount++;
+		} while (match(TOKEN_COMMA));
+	}
+	
+	consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+	return argCount;
 }
 
 static void and_(bool canAssign) {
@@ -418,6 +476,11 @@ static void binary(bool canAssign) {
 		default:
 			return;
 	}
+}
+
+static void call(bool canAssign) {
+	uint8_t argCount = argumentList();
+	emitOpAndConstant(OP_CALL, argCount);
 }
 
 static void literal(bool canAssign) {
@@ -473,7 +536,7 @@ static void namedVariable(Token name, bool canAssign) {
 	
 	if (canAssign && match(TOKEN_EQUAL)) {
 		expression();
-		if (currentChunk()->constants.values[arg].constant == true && global) {
+		if (currentChunk()->constants->values[arg].constant == true && global) {
 			error("Attempt to re-assign variable declared with type qualifier 'const'.");
 		} else if (current->locals[arg].constant == true && !global) {
 			error("Attempt to re-assign variable declared with type qualifier 'const'.");
@@ -525,7 +588,7 @@ static void braceError(bool canAssign) {
 }
 
 ParseRule rules[] = {
-	[TOKEN_LEFT_PAREN]= {grouping,NULL,PREC_NONE},
+	[TOKEN_LEFT_PAREN]= {grouping,call,PREC_CALL},
 	[TOKEN_RIGHT_PAREN]= {parenError,NULL,PREC_NONE},
 	[TOKEN_LEFT_BRACE]= {NULL,NULL,PREC_NONE},
 	[TOKEN_RIGHT_BRACE]= {braceError,NULL,PREC_NONE},
@@ -624,6 +687,43 @@ static void block(controlFlow* controls) {
 	}
 	
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
+static void function(FunctionType type, ValueArray* constants) {
+	controlFlow* dummy;
+	Compiler compiler;
+	initCompiler(&compiler, type, constants);
+	beginScope();
+	
+	// compile the parameter list.
+	consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+	if (!check(TOKEN_RIGHT_PAREN)) {
+		do {
+			current->function->arity++;
+			if (current->function->arity > 255) {
+				errorAtCurrent("Too many parameters in function.");
+			}
+			
+			uint8_t paramConstant = parseVariable("Expect parameter name.", false);
+			defineVariable(paramConstant);
+		} while (match(TOKEN_COMMA));
+	}
+	consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+	
+	// the body.
+	consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+	block(dummy);
+	
+	// create the function object.
+	ObjFunction* function = endCompiler();
+	emitConstant(OBJ_VAL(function));
+}
+
+static void functionDeclaration(ValueArray* constants) {
+	uint8_t global = parseVariable("Expect function name.", true);
+	markInitialized();
+	function(TYPE_FUNCTION, constants);
+	defineVariable(global);
 }
 
 static void varDeclaration(bool constant) {
@@ -871,6 +971,20 @@ static void printStatement() {
 	emitByte(OP_PRINT);
 }
 
+static void returnStatement() {
+	if (current->type == TYPE_SCRIPT) {
+		error("Can't return from top-level code.");
+	}
+	
+	if (match(TOKEN_SEMICOLON)) {
+		emitReturn();
+	} else {
+		expression();
+		consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+		emitByte(OP_RETURN);
+	}
+}
+
 static void whileStatement() {
 	int breakJump = 0;
 	
@@ -942,8 +1056,10 @@ static void synchronize() {
 
 // The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
 
-static void declaration(controlFlow* controls) {
-	if (match(TOKEN_VAR)) {
+static void declaration(controlFlow* controls, ValueArray* constants) {
+	if (match(TOKEN_DEF)){
+		functionDeclaration(constants);	
+	} else if (match(TOKEN_VAR)) {
 		varDeclaration(false);
 	} else {
 		statement(controls);
@@ -971,6 +1087,8 @@ static void statement(controlFlow* controls) {
 		forStatement();
 	} else if (match(TOKEN_IF)) {
 		ifStatement(controls);
+	} else if (match(TOKEN_RETURN)) {
+		returnStatement();
 	} else if (match(TOKEN_SWITCH)) {
 		switchStatement();
 	} else if (match(TOKEN_WHILE)) {
@@ -986,11 +1104,23 @@ static void statement(controlFlow* controls) {
 	}
 }
 
-bool compile(const char* source, Chunk* chunk) {
+static void addNativeIdentifiers() {
+	for (int i = 0; i < vm.nativeIdentifierCount; i++) {
+		ObjString* key = allocateString(false, vm.nativeIdentifiers[i], strlen(vm.nativeIdentifiers[i]));
+		int index = addConstant(currentChunk(), OBJ_VAL(key), true);
+		
+		tableSet(&vm.globalConstantIndex, &OBJ_KEY(key), NUMBER_VAL(index));
+	}
+}
+
+ObjFunction* compile(const char* source) {
+	ValueArray constants;
+	initValueArray(&constants);
+	
 	initScanner(source);
 	Compiler compiler;
-	initCompiler(&compiler);
-	compilingChunk = chunk;
+	initCompiler(&compiler, TYPE_SCRIPT, &constants);
+	addNativeIdentifiers();
 	controlFlow* controls;
 	
 	parser.hadError = false;
@@ -998,9 +1128,9 @@ bool compile(const char* source, Chunk* chunk) {
 	advance();
 	
 	while (!match(TOKEN_EOF)) {
-		declaration(controls);
+		declaration(controls, &constants);
 	}
 	
-	endCompiler();
-	return !parser.hadError;
+	ObjFunction* function = endCompiler();
+	return parser.hadError ? NULL : function;
 }

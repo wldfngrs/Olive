@@ -30,7 +30,7 @@ static int popNInstruction(const char* name, Chunk* chunk, int offset) {
 static int constantInstruction(const char* name, Chunk* chunk, int offset) {
 	uint8_t constantIndex = chunk->code[offset + 1];
 	printf("%-16s %14d '", name, constantIndex);
-	printValue(chunk->constants.values[constantIndex]);
+	printValue(chunk->constants->values[constantIndex]);
 	printf("'\n");
 	return offset + 2;
 }
@@ -38,7 +38,7 @@ static int constantInstruction(const char* name, Chunk* chunk, int offset) {
 static int constantLongInstruction(const char* name, Chunk* chunk, int offset) {
 	uint32_t constantIndex = (chunk->code[offset + 1] | (chunk->code[offset + 2] << 8) | (chunk->code[offset + 3] << 16));
 	printf("%-16s %14d '", name, constantIndex);
-	printValue(chunk->constants.values[constantIndex]);
+	printValue(chunk->constants->values[constantIndex]);
 	printf("'\n");
 	return offset + 4;
 }
@@ -81,18 +81,18 @@ int disassembleInstruction(Chunk* chunk, int offset) {
 		case OP_SET_LOCAL:
 			return byteInstruction("OP_SET_LOCAL", chunk, offset); 
 		case OP_GET_GLOBAL: {
-			if (chunk->constants.count < 256) {
+			if (chunk->constants->count < 256) {
 				return constantInstruction("OP_GET_GLOBAL", chunk, offset);	
 			}
 			return constantLongInstruction("OP_GET_GLOBAL", chunk, offset);
 		}
 		case OP_DEFINE_GLOBAL:
-			if (chunk->constants.count < 256) {
+			if (chunk->constants->count < 256) {
 				return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);;	
 			}
 			return constantLongInstruction("OP_DEFINE_GLOBAL", chunk, offset);
 		case OP_SET_GLOBAL:
-			if (chunk->constants.count < 256) {
+			if (chunk->constants->count < 256) {
 				return constantInstruction("OP_SET_GLOBAL", chunk, offset);;	
 			}
 			return constantLongInstruction("OP_SET_GLOBAL", chunk, offset);
@@ -142,6 +142,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
 			return jumpInstruction("OP_BREAK", 1, chunk, offset);
 		case OP_FALLTHROUGH:
 			return simpleInstruction("OP_FALLTHROUGH", offset);
+		case OP_CALL:
+			return byteInstruction("OP_CALL", chunk, offset);
 		case OP_RETURN:
 			return simpleInstruction("OP_RETURN", offset);
 		default:

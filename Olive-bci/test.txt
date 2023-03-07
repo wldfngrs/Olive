@@ -1,7 +1,8 @@
-for (var a = 0; a < 10; a = a + 1) {
-	if (a == 5) {
-		continue;
-	}
-	
-	print a;
+def fib(n) {
+	if (n < 2) return n;
+	return fib(n-2) + fib(n-1);
 }
+
+var start = clock();
+print fib(4);
+print clock() - start;

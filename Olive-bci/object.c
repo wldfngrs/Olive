@@ -18,6 +18,21 @@ static Obj* allocateObject(size_t size, ObjType type) {
 	return object;
 }
 
+ObjFunction* newFunction(ValueArray* constants) {
+	ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+	
+	function->arity = 0;
+	function->name = NULL;
+	initChunk(&function->chunk, constants);
+	return function;
+}
+
+ObjNative* newNative(NativeFunction function) {
+	ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+	native->function = function;
+	return native;
+}
+
 static uint32_t hashString(const char* key, int length) {
 	uint32_t hash = 2166136261u;
 	
@@ -56,10 +71,30 @@ ObjString* takeString(const char* chars, int length) {
 	return allocateString(true, chars, length);
 }
 
+static void printFunction(ObjFunction* function) {
+	if (function->name == NULL) {
+		printf("<script>");
+		return;
+	}
+	
+	printf("<def %.*s>", function->name->length, function->name->chars);
+}
+
 void printObject(Value value) {
 	switch(OBJ_TYPE(value)) {
-		case OBJ_STRING:
+		case OBJ_FUNCTION: {
+			printFunction(AS_FUNCTION(value));
+			break;
+		}
+		
+		case OBJ_NATIVE: {
+			printf("<native function>");
+			break;
+		}
+		
+		case OBJ_STRING: {
 			printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
 			break;
+		}
 	}
 }

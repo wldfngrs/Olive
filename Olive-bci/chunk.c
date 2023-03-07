@@ -10,21 +10,22 @@ void clearLineInfo() {
 	indx = 0;
 }
 
-void initChunk(Chunk* chunk) {
+void initChunk(Chunk* chunk, ValueArray* constants) {
 	chunk->count = 0;
 	chunk->capacity = 0;
 	chunk->code = NULL;
 	chunk->lineArr = NULL;
 	chunk->codeArr = NULL;
-	initValueArray(&chunk->constants);
+	//initValueArray(&chunk->constants);
+	chunk->constants = constants;
 }
 
 void freeChunk(Chunk* chunk) {
 	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
 	FREE_ARRAY(int, chunk->codeArr, chunk->capacity);
 	FREE_ARRAY(int, chunk->lineArr, chunk->capacity);
-	freeValueArray(&chunk->constants);
-	initChunk(chunk);
+	freeValueArray(chunk->constants);
+	initChunk(chunk, chunk->constants);
 }
 
 void freeChunkButNotValueArray(Chunk* chunk) {
@@ -64,8 +65,8 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 
 int addConstant(Chunk* chunk, Value value, bool constness) {
 	value.constant = constness;
-	writeValueArray(&chunk->constants, value);
-	return chunk->constants.count - 1;
+	writeValueArray(chunk->constants, value);
+	return chunk->constants->count - 1;
 }
 
 
