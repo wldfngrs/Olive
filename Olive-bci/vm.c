@@ -16,10 +16,6 @@ VM vm;
 
 bool switchFallThrough = false;
 
-static Value clockNative(int argCount, Value* args) {
-	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-}
-
 static void resetStack() {
 	initStack(&vm.stack);
 	vm.stackTop = vm.stack.stack;
@@ -47,6 +43,15 @@ static void runtimeError(const char* format, ...) {
 	}
 	
 	resetStack();
+}
+
+static Value clockNative(int argCount, Value* args) {
+	if (argCount != 0) {
+		runtimeError("Expected 0 arguments. Initialized with %d argument(s) instead.", argCount);
+		return NULL_VAL;
+	}
+	
+	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 
 static void defineNative(const char* name, NativeFunction function) {
@@ -107,7 +112,7 @@ static Value peek(int distance) {
 
 static bool call(ObjFunction* function, int argCount) {
 	if (argCount != function->arity) {
-		runtimeError("Expected %d arguments. Initialized with %d arguments instead.", function->arity, argCount);
+		runtimeError("Expected %d arguments. Initialized with %d argument(s) instead.", function->arity, argCount);
 		return false;
 	}
 	
@@ -133,6 +138,10 @@ static bool callValue(Value callee, int argCount) {
 			case OBJ_NATIVE: {
 				NativeFunction native = AS_NATIVE(callee);
 				Value result = native(argCount, vm.stackTop - argCount);
+				if (IS_NULL(result)) {
+					return false;
+				}
+				
 				vm.stackTop -= argCount + 1;
 				push(result);
 				return true;
@@ -442,7 +451,19 @@ bool withinREPL = false;
 Chunk chunkREPL;
 
 InterpretResult interpretREPL(const char* source) {
+	ObjFunction* function = compile(source);
+	if (function == NULL) {
+		clearLineInfo();
+		return INTERPRET_COMPILE_ERROR;
+	}
 	
+	push(OBJ_VAL(function));
+	callValue(OBJ_VAL(function), 0);
+	
+	InterpretResult result = run();
+	clearLineInfo();
+	withinREPL = true;
+	return result;	
 
 	/*if (!withinREPL) initChunk(&chunkREPL);
 	

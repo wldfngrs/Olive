@@ -1114,8 +1114,8 @@ static void addNativeIdentifiers() {
 }
 
 ObjFunction* compile(const char* source) {
-	ValueArray constants;
-	initValueArray(&constants);
+	static ValueArray constants;
+	if (!withinREPL) initValueArray(&constants);
 	
 	initScanner(source);
 	Compiler compiler;
