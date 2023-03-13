@@ -47,7 +47,7 @@ static void runtimeError(const char* format, ...) {
 
 static Value clockNative(int argCount, Value* args) {
 	if (argCount != 0) {
-		runtimeError("Expected 0 arguments. Initialized with %d argument(s) instead.", argCount);
+		runtimeError("'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead.", argCount);
 		return NULL_VAL;
 	}
 	
@@ -112,7 +112,7 @@ static Value peek(int distance) {
 
 static bool call(ObjFunction* function, int argCount) {
 	if (argCount != function->arity) {
-		runtimeError("Expected %d arguments. Initialized with %d argument(s) instead.", function->arity, argCount);
+		runtimeError("'%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead.", function->name->length, function->name->chars, function->arity, argCount);
 		return false;
 	}
 	
@@ -451,7 +451,7 @@ bool withinREPL = false;
 Chunk chunkREPL;
 
 InterpretResult interpretREPL(const char* source) {
-	ObjFunction* function = compile(source);
+	ObjFunction* function = compileREPL(source);
 	if (function == NULL) {
 		clearLineInfo();
 		return INTERPRET_COMPILE_ERROR;

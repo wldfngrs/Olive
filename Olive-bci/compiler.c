@@ -16,6 +16,7 @@ bool withinLoopOrSwitch = false;
 bool withinLoop = false;
 bool scannedPastNewLine = false;
 int breakGlobal = 0; // 0 if break not executed.
+ValueArray constants;
 
 typedef struct {
 	Token current;
@@ -689,10 +690,9 @@ static void block(controlFlow* controls) {
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
-static void function(FunctionType type, ValueArray* constants) {
-	controlFlow* dummy;
+static void function(FunctionType type) {
 	Compiler compiler;
-	initCompiler(&compiler, type, constants);
+	initCompiler(&compiler, type, &constants);
 	beginScope();
 	
 	// compile the parameter list.
@@ -712,17 +712,18 @@ static void function(FunctionType type, ValueArray* constants) {
 	
 	// the body.
 	consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
-	block(dummy);
+	block(NULL); // no control flow statements expected directly within function block.
+	endScope();
 	
 	// create the function object.
 	ObjFunction* function = endCompiler();
 	emitConstant(OBJ_VAL(function));
 }
 
-static void functionDeclaration(ValueArray* constants) {
+static void functionDeclaration() {
 	uint8_t global = parseVariable("Expect function name.", true);
 	markInitialized();
-	function(TYPE_FUNCTION, constants);
+	function(TYPE_FUNCTION);
 	defineVariable(global);
 }
 
@@ -1056,9 +1057,9 @@ static void synchronize() {
 
 // The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
 
-static void declaration(controlFlow* controls, ValueArray* constants) {
+static void declaration(controlFlow* controls) {
 	if (match(TOKEN_DEF)){
-		functionDeclaration(constants);	
+		functionDeclaration();	
 	} else if (match(TOKEN_VAR)) {
 		varDeclaration(false);
 	} else {
@@ -1114,6 +1115,27 @@ static void addNativeIdentifiers() {
 }
 
 ObjFunction* compile(const char* source) {
+	initValueArray(&constants);
+	
+	initScanner(source);
+	Compiler compiler;
+	initCompiler(&compiler, TYPE_SCRIPT, &constants);
+	addNativeIdentifiers();
+	controlFlow* controls;
+	
+	parser.hadError = false;
+	parser.panicMode = false;
+	advance();
+	
+	while (!match(TOKEN_EOF)) {
+		declaration(controls);
+	}
+	
+	ObjFunction* function = endCompiler();
+	return parser.hadError ? NULL : function;
+}
+
+ObjFunction* compileREPL(const char* source) {
 	static ValueArray constants;
 	if (!withinREPL) initValueArray(&constants);
 	
@@ -1128,7 +1150,7 @@ ObjFunction* compile(const char* source) {
 	advance();
 	
 	while (!match(TOKEN_EOF)) {
-		declaration(controls, &constants);
+		declaration(controls);
 	}
 	
 	ObjFunction* function = endCompiler();

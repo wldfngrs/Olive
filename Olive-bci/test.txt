@@ -1,5 +1,9 @@
-var a = 10;
-while (a > 0) {
-	print a;
-	a = a - 1;
+var x = "global";
+def outer() {
+	def inner() {
+		print x;
+	}
+	inner();
 }
+
+outer();
