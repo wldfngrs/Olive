@@ -83,7 +83,7 @@ static Chunk* currentChunk() {
 
 char returnString[256];
 
-static char* trim (const char* string, int trimLength) {;
+static char* trim (const char* string, int trimLength) {
 	strncpy(returnString, string, trimLength);
 	return returnString;
 }
