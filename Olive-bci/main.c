@@ -11,13 +11,7 @@ int currentLength = 0;
 int prevLength = 0;
 
 static bool quit(char* line) {
-	if (*(line+prevLength+4) == '\n') {
-		*(line+prevLength+4) = '\0';	
-	} else {
-		return false;
-	}
-	
-	if ((strcmp(line + prevLength, "exit") * strcmp(line + prevLength, "quit")) == 0) {
+	if ((strcmp(line + prevLength, "exit\n") * strcmp(line + prevLength, "quit\n")) == 0) {
 		return true;
 	}
 	
