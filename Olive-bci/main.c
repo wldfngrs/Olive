@@ -10,8 +10,14 @@ bool REPLmode = false;
 int currentLength = 0;
 int prevLength = 0;
 
-static bool quit(const char* line) {
-	if ((strncmp(line + prevLength, "exit", 4) * strncmp(line + prevLength, "quit", 4)) == 0) {
+static bool quit(char* line) {
+	if (*(line+prevLength+4) == '\n') {
+		*(line+prevLength+4) = '\0';	
+	} else {
+		return false;
+	}
+	
+	if ((strcmp(line + prevLength, "exit") * strcmp(line + prevLength, "quit")) == 0) {
 		return true;
 	}
 	

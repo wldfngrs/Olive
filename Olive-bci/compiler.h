@@ -6,5 +6,6 @@
 
 ObjFunction* compile(const char* source);
 ObjFunction* compileREPL(const char* source);
+void markCompilerRoots();
 
 #endif

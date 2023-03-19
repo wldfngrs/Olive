@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "compiler.h"
+#include "memory.h"
 #include "scanner.h"
 #include "chunk.h"
 #include "control.h"
@@ -51,8 +52,14 @@ typedef struct {
 typedef struct {
 	Token name;
 	int depth;
-	bool constant;
+	bool isConst;
+	bool isCaptured;
 } Local;
+
+typedef struct {
+	uint8_t index;
+	bool isLocal;
+} Upvalue;
 
 typedef enum {
 	TYPE_FUNCTION,
@@ -66,6 +73,7 @@ struct Compiler {
 
 	Local locals[SCOPE_COUNT];
 	int localCount;
+	Upvalue upvalues[SCOPE_COUNT];
 	int scopeDepth;
 };
 
@@ -84,6 +92,7 @@ static Chunk* currentChunk() {
 char returnString[256];
 
 static char* trim (const char* string, int trimLength) {
+	memset(returnString, 0, 256);
 	strncpy(returnString, string, trimLength);
 	return returnString;
 }
@@ -256,6 +265,7 @@ static void initCompiler(Compiler* compiler, FunctionType type, ValueArray* cons
 
 	Local* local = &current->locals[current->localCount++];
 	local->depth = 0;
+	local->isCaptured = false;
 	local->name.start = "";
 	local->name.length = 0;
 	clearLineInfo();
@@ -296,7 +306,11 @@ static void endScope() {
 	int popCount = 0;
 	
 	while (current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth) {
-		popCount++;
+		if (current->locals[current->localCount - 1].isCaptured) {
+			emitByte(OP_CLOSE_UPVALUE);
+		} else {
+			popCount++;
+		}
 		current->localCount--;
 		
 	}
@@ -315,15 +329,18 @@ static void parsePrecedence(Precedence precedence);
 	For an old key, the the constness of 'value' has to be equal to the value returned at that index in the chunk's ValueArray. eg. if 'value' is 1 and it has a constness of 'true', the value returned at index 1 in the ValueArray has to be of constness 'true' else error.
 	*/
 
-static int identifierConstantDeclaration(Token* name, bool constant) {
+static int identifierConstantDeclaration(Token* name, bool isConst) {
 	ObjString* objString = allocateString(false, name->start, name->length);
 
 	if (tableSetGlobal(&vm.globalConstantIndex, &OBJ_KEY(objString), NUMBER_VAL(currentChunk()->constants->count))) {
-		return addConstant(currentChunk(), OBJ_VAL(objString), constant);	
+		return addConstant(currentChunk(), OBJ_VAL(objString), isConst);	
 	} else {
 		Value constantIndex;
 		tableGet(&vm.globalConstantIndex, &OBJ_KEY(objString), &constantIndex);
-		if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].constant != constant) {
+		if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == true) {
+			error("Attempt to re-declare variable already declared with type qualifier 'const'.");
+		}
+		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false) {
 			error("Attempt to re-declare variable type qualifier.");
 		}
 		return (int)AS_NUMBER(constantIndex);
@@ -356,10 +373,47 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 		}
 	}
 	
+	return -1; // couldn't resolve name to any declared local variables
+}
+
+static int addUpvalue(Compiler* compiler, uint8_t index, bool isLocal) {
+	int upvalueCount = compiler->function->upvalueCount;
+	
+	for (int i = 0; i < upvalueCount; i++) {
+		Upvalue* upvalue = &compiler->upvalues[i];
+		if (upvalue->index == index && upvalue->isLocal == isLocal) {
+			return i;
+		}
+	}
+	
+	if (upvalueCount == SCOPE_COUNT) {
+		error("Too many closure variables in function.");
+		return 0;
+	}
+	
+	compiler->upvalues[upvalueCount].isLocal = isLocal;
+	compiler->upvalues[upvalueCount].index = index;
+	return compiler->function->upvalueCount++;
+}
+
+static int resolveUpvalue(Compiler* compiler, Token* name) {
+	if (compiler->enclosing == NULL) return -1;
+	
+	int local = resolveLocal(compiler->enclosing, name);
+	if (local != -1) { // if resolved in enclosing compilers local variables array
+		compiler->enclosing->locals[local].isCaptured = true;
+		return addUpvalue(compiler, (uint8_t)local, true);
+	}
+	
+	int upvalue = resolveUpvalue(compiler->enclosing, name);
+	if (upvalue != -1) {
+		return addUpvalue(compiler, (uint8_t)upvalue, false);
+	}
+	
 	return -1;
 }
 
-static void addLocal(Token name, bool constant) {
+static void addLocal(Token name, bool isConst) {
 	if (current->localCount == SCOPE_COUNT) {
 		error("Too many local variables in function.");
 		return;
@@ -367,11 +421,12 @@ static void addLocal(Token name, bool constant) {
 	
 	Local* local = &current->locals[current->localCount++];
 	local->name = name;
-	local->depth = -1;
-	local->constant = constant;
+	local->depth = -1; // -1 depth means variable is declared but uninitialized
+	local->isConst = isConst;
+	local->isCaptured = false;
 }
 
-static void declareVariable(bool constant) {
+static void declareVariable(bool isConst) {
 	// Global variables are implicitly declared.
 	if (current->scopeDepth == 0) return;
 	
@@ -384,7 +439,7 @@ static void declareVariable(bool constant) {
 		}
 		
 		if (identifiersEqual(name, &local->name)) {
-			if (local->constant != constant) {
+			if (local->isConst != isConst) {
 				error("Attempt to re-declare variable type qualifier.");
 			}
 			error("Variable re-definition within scope.");
@@ -392,16 +447,16 @@ static void declareVariable(bool constant) {
 	}
 	
 	
-	addLocal(*name, constant);
+	addLocal(*name, isConst);
 }
 
-static int parseVariable(const char* errorMessage, bool constant) {
+static int parseVariable(const char* errorMessage, bool isConst) {
 	consume(TOKEN_IDENTIFIER, errorMessage);
 	
-	declareVariable(constant);
+	declareVariable(isConst);
 	if (current->scopeDepth > 0) return 0;
 	
-	return identifierConstantDeclaration(&parser.previous, constant);
+	return identifierConstantDeclaration(&parser.previous, isConst);
 }
 
 static void markInitialized() {
@@ -528,6 +583,9 @@ static void namedVariable(Token name, bool canAssign) {
 		global = false;
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
+	} else if ((arg = resolveUpvalue(current, &name)) != -1) {
+		getOp = OP_GET_UPVALUE;
+		setOp = OP_SET_UPVALUE;
 	} else {
 		global = true;
 		arg = identifierConstantSetGet(&name);
@@ -537,9 +595,9 @@ static void namedVariable(Token name, bool canAssign) {
 	
 	if (canAssign && match(TOKEN_EQUAL)) {
 		expression();
-		if (currentChunk()->constants->values[arg].constant == true && global) {
+		if (currentChunk()->constants->values[arg].isConst == true && global) {
 			error("Attempt to re-assign variable declared with type qualifier 'const'.");
-		} else if (current->locals[arg].constant == true && !global) {
+		} else if (current->locals[arg].isConst == true && !global) {
 			error("Attempt to re-assign variable declared with type qualifier 'const'.");
 		} else emitOpAndConstant(setOp, (uint8_t)arg);
 	} else {
@@ -713,11 +771,15 @@ static void function(FunctionType type) {
 	// the body.
 	consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
 	block(NULL); // no control flow statements expected directly within function block.
-	endScope();
 	
 	// create the function object.
 	ObjFunction* function = endCompiler();
-	emitConstant(OBJ_VAL(function));
+	emitOpAndConstant(OP_CLOSURE, addConstant(currentChunk(), OBJ_VAL(function), true));
+	
+	for (int i = 0; i < function->upvalueCount; i++) {
+		emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
+		emitByte(compiler.upvalues[i].index);
+	}
 }
 
 static void functionDeclaration() {
@@ -727,8 +789,8 @@ static void functionDeclaration() {
 	defineVariable(global);
 }
 
-static void varDeclaration(bool constant) {
-	int global = parseVariable("Expect variable name.", constant);
+static void varDeclaration(bool isConst) {
+	int global = parseVariable("Expect variable name.", isConst);
 	
 	if (match(TOKEN_EQUAL)) {
 		expression();
@@ -762,11 +824,18 @@ static void continueStatement(controlFlow* controls) {
 
 static void forStatement() {
 	beginScope();
+	
+	int loopVariableSlot = -1;
+	Token loopVariableName;
+	loopVariableName.start = NULL;
+	
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for' token.");
 	if (match(TOKEN_SEMICOLON)) {
 		// No initializer
 	} else if (match(TOKEN_VAR)) {
+		loopVariableName = parser.current;
 		varDeclaration(false);
+		loopVariableSlot = current->localCount - 1;
 	} else {
 		expressionStatement();
 	}
@@ -799,6 +868,17 @@ static void forStatement() {
 		patchJump(bodyJump);
 	}
 	
+	int innerVariable = -1;
+	if (loopVariableSlot != -1) {
+		beginScope();
+		emitByte(OP_GET_LOCAL);
+		emitByte((uint8_t)loopVariableSlot);
+		addLocal(loopVariableName, false);
+		markInitialized();
+		
+		innerVariable = current->localCount - 1;
+	}
+	
 	withinLoopOrSwitch = true;
 	withinLoop = true;
 	
@@ -811,6 +891,16 @@ static void forStatement() {
 				continueParsingOnBreak1();
 			}
 		}
+	}
+	
+	if (loopVariableSlot != -1) {
+		emitByte(OP_GET_LOCAL);
+		emitByte((uint8_t)innerVariable);
+		emitByte(OP_SET_LOCAL);
+		emitByte((uint8_t)loopVariableSlot);
+		emitByte(OP_POP);
+		
+		endScope();
 	}
 	
 	if (breakGlobal == 1) breakGlobal = 0;
@@ -1155,4 +1245,12 @@ ObjFunction* compileREPL(const char* source) {
 	
 	ObjFunction* function = endCompiler();
 	return parser.hadError ? NULL : function;
+}
+
+void markCompilerRoots() {
+	Compiler* compiler = current;
+	while (compiler != NULL) {
+		markObject((Obj*)compiler->function);
+		compiler = compiler->enclosing;
+	}
 }

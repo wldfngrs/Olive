@@ -12,16 +12,32 @@
 static Obj* allocateObject(size_t size, ObjType type) {
 	Obj* object = (Obj*)reallocate(NULL, 0, size);
 	object->type = type;
+	object->isMarked = false;
 	
 	object->next = vm.objects;
 	vm.objects = object;
 	return object;
 }
 
+ObjClosure* newClosure(ObjFunction* function) {
+	ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalueCount);
+	
+	for (int i = 0; i < function->upvalueCount; i++) {
+		upvalues[i] = NULL;
+	}
+	
+	ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+	closure->function = function;
+	closure->upvalues = upvalues;
+	closure->upvalueCount = function->upvalueCount;
+	return closure;
+}
+
 ObjFunction* newFunction(ValueArray* constants) {
 	ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
 	
 	function->arity = 0;
+	function->upvalueCount = 0;
 	function->name = NULL;
 	initChunk(&function->chunk, constants);
 	return function;
@@ -50,7 +66,7 @@ ObjString* allocateString(bool ownString, const char* chars, int length) {
 	if (interned != NULL) { //  if string is stored already in string table
 		if (ownString) {
 			FREE_ARRAY(char, (char*)chars, length + 1);
-		} 
+		}
 		return interned;
 	}
 
@@ -61,9 +77,19 @@ ObjString* allocateString(bool ownString, const char* chars, int length) {
 	string->ownString = ownString;
 	string->hash = hash;
 	
+	push(OBJ_VAL(string));
 	tableSet(&vm.strings, &OBJ_KEY(string), NULL_VAL);
+	pop(1);
 	
 	return string;
+}
+
+ObjUpvalue* newUpvalue(Value* slot) {
+	ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+	upvalue->closed = NULL_VAL;
+	upvalue->location = slot;
+	upvalue->next = NULL;
+	return upvalue;
 }
 
 // own their copy of the character array. Points back to heap allocated string and frees string.
@@ -82,6 +108,9 @@ static void printFunction(ObjFunction* function) {
 
 void printObject(Value value) {
 	switch(OBJ_TYPE(value)) {
+		case OBJ_CLOSURE:
+			printFunction(AS_CLOSURE(value)->function);
+			break;
 		case OBJ_FUNCTION: {
 			printFunction(AS_FUNCTION(value));
 			break;
@@ -96,5 +125,9 @@ void printObject(Value value) {
 			printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
 			break;
 		}
+		
+		case OBJ_UPVALUE:
+			printf("upvalue");
+			break;
 	}
 }

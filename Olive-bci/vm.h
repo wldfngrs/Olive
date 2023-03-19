@@ -12,7 +12,7 @@
 #define NATIVE_ID_MAX 10
 
 typedef struct {
-	ObjFunction* function;
+	ObjClosure* closure;
 	uint8_t* ip;
 	Value* slots;
 } CallFrame;
@@ -30,7 +30,15 @@ typedef struct {
 	Table globalConstantIndex; // probably find a better name
 	int nativeIdentifierCount;
 	const char* nativeIdentifiers[NATIVE_ID_MAX];
+	ObjUpvalue* openUpvalues;
 	Obj* objects;
+	
+	size_t bytesAllocated;
+	size_t nextGC;
+	
+	int grayCount;
+	int grayCapacity;
+	Obj** grayStack;
 } VM;
 
 

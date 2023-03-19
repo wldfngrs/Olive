@@ -3,6 +3,7 @@
 
 #include "chunk.h"
 #include "memory.h"
+#include "vm.h"
 
 void clearLineInfo() {
 	currentLine = 0;
@@ -63,9 +64,11 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	chunk->count++;
 }
 
-int addConstant(Chunk* chunk, Value value, bool constness) {
-	value.constant = constness;
+int addConstant(Chunk* chunk, Value value, bool isConst) {
+	value.isConst = isConst;
+	push(value);
 	writeValueArray(chunk->constants, value);
+	pop(1);
 	return chunk->constants->count - 1;
 }
 

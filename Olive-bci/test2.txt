@@ -1,0 +1,6 @@
+def outer() {
+	var a = "outer";
+	print a;
+}
+
+outer();
