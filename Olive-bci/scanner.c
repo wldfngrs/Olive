@@ -162,6 +162,8 @@ static TokenType identifierType() {
 				return checkKeyword(1,2, "ef", TOKEN_DEF);
 			} else if ((scanner.current - scanner.start) == 7) {
 				return checkKeyword(1,6, "efault", TOKEN_SWITCHDEFAULT);
+			} else if ((scanner.current - scanner.start) == 8) {
+				return checkKeyword(1,7, "el_attr", TOKEN_DELATTR);
 			}
 			break;
 		case 'e': return checkKeyword(1,3, "lse", TOKEN_ELSE);

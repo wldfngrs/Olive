@@ -28,7 +28,7 @@ static void runtimeError(const char* format, ...) {
 	va_start(args, format);
 	vfprintf(stderr, format, args);
 	va_end(args);
-	fputs("\n", stderr);
+	//fputs("\n", stderr);
 	
 	for (int i = vm.frameCount - 1; i >= 0; i--) {
 		CallFrame* frame = &vm.frames[i];
@@ -48,7 +48,7 @@ static void runtimeError(const char* format, ...) {
 
 static Value clockNative(int argCount, Value* args) {
 	if (argCount != 0) {
-		runtimeError("'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead.", argCount);
+		runtimeError("Error: 'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead", argCount);
 		return NULL_VAL;
 	}
 	
@@ -121,12 +121,12 @@ static Value peek(int distance) {
 
 static bool call(ObjClosure* closure, int argCount) {
 	if (argCount != closure->function->arity) {
-		runtimeError("'%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead.", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
+		runtimeError("Error: '%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
 		return false;
 	}
 	
 	if (vm.frameCount == FRAMES_MAX) {
-		runtimeError("Stack overflow. :)");
+		runtimeError("Error: Stack overflow. :)");
 		return false;
 	}
 
@@ -141,6 +141,12 @@ static bool call(ObjClosure* closure, int argCount) {
 static bool callValue(Value callee, int argCount) {
 	if(IS_OBJ(callee)) {
 		switch(OBJ_TYPE(callee)) {
+			case OBJ_CLASS: {
+				ObjClass* c = AS_CLASS(callee);
+				vm.stackTop[-argCount - 1] = OBJ_VAL(newInstance(c));
+				return true;
+			}
+			
 			case OBJ_CLOSURE:
 				return call(AS_CLOSURE(callee), argCount);
 			
@@ -162,7 +168,7 @@ static bool callValue(Value callee, int argCount) {
 		}
 	}
 	
-	runtimeError("Non-callable object type.");
+	runtimeError("Error: Non-callable object type");
 	return false;
 }
 
@@ -238,7 +244,7 @@ static InterpretResult run() {
 #define BINARY_OP(valueType, op)\
 	do { \
 		if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {\
-			runtimeError("Operands must be numbers."); \
+			runtimeError("Error: Operands must be numbers."); \
 			return INTERPRET_RUNTIME_ERROR; \
 		}\
 		double b = AS_NUMBER(pop(1)); \
@@ -292,7 +298,7 @@ static InterpretResult run() {
 				ObjString* name = READ_STRING();
 				Value value;
 				if (!tableGet(&vm.globals, &OBJ_KEY(name), &value)) {
-					runtimeError("Undefined variable '%.*s'.", name->length, name->chars);
+					runtimeError("Error: Undefined variable '%.*s', ", name->length, name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				push(value);
@@ -307,7 +313,7 @@ static InterpretResult run() {
 				ObjString* name = READ_STRING();
 				if (tableSet(&vm.globals, &OBJ_KEY(name), peek(0))) {
 					tableDelete(&vm.globals, &OBJ_KEY(name));
-					runtimeError("Undefined variable '%.*s'.", name->length, name->chars);
+					runtimeError("Error: Undefined variable '%.*s', ", name->length, name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -322,6 +328,52 @@ static InterpretResult run() {
 			case OP_SET_UPVALUE: {
 				uint8_t slot = READ_BYTE();
 				*frame->closure->upvalues[slot]->location = peek(0);
+				break;
+			}
+			
+			case OP_GET_PROPERTY: {
+				if (!IS_INSTANCE(peek(0))) {
+					runtimeError("Error: Attempt to access property of a non-instance, ");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				ObjInstance* instance = AS_INSTANCE(peek(0));
+				ObjString* name = READ_STRING();
+				
+				Value value;
+				if (tableGet(&instance->fields, &OBJ_KEY(name), &value)) {
+					pop(1);
+					push(value);
+					break;
+				}
+				
+				runtimeError("Error: Undefined property '%.*s', ", name->length, name->chars);
+				return INTERPRET_RUNTIME_ERROR;
+			}
+			
+			case OP_SET_PROPERTY: {
+				if (!IS_INSTANCE(peek(1))) {
+					runtimeError("Error: Only instances have fields, ");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				ObjInstance* instance = AS_INSTANCE(peek(1));
+				tableSet(&instance->fields, &OBJ_KEY(READ_STRING()), peek(0));
+				
+				Value value = pop(1);
+				pop(1);
+				push(value);
+				break;
+			}
+			
+			case OP_DELATTR: {
+				ObjString* attr = AS_STRING(pop(1));
+				ObjInstance* instance = AS_INSTANCE(pop(1));
+				Value value;
+				if (tableGet(&instance->fields, &OBJ_KEY(attr), &value)) {
+					tableDelete(&instance->fields, &OBJ_KEY(attr));
+					break;
+				}
+				
+				runtimeError("Error: Attempt to delete non-existent field '%.*s', ", attr->length, attr->chars);
 				break;
 			}
 			
@@ -379,7 +431,7 @@ static InterpretResult run() {
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
 				} else {
-					runtimeError("Operands must be two numbers or two strings.");
+					runtimeError("Error: Operands must be two numbers or two strings, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -392,7 +444,7 @@ static InterpretResult run() {
 				break;
 			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
-					runtimeError("Operand must be a number.");
+					runtimeError("Error: Operand must be a number, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				
@@ -502,6 +554,11 @@ static InterpretResult run() {
 				push(result);
 				
 				frame = &vm.frames[vm.frameCount - 1];
+				break;
+			}
+			
+			case OP_CLASS: {
+				push(OBJ_VAL(newClass(READ_STRING())));
 				break;
 			}
 		}

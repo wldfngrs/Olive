@@ -1,2 +1,11 @@
-var a = 10;
-print a;
+class Pair {}
+
+var pair = Pair();
+pair.first = 1;
+pair.second = 2;
+
+print pair.first + pair.second;
+
+del_attr(pair, "first");
+
+print pair.second;

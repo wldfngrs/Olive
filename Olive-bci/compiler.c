@@ -338,7 +338,7 @@ static int identifierConstantDeclaration(Token* name, bool isConst) {
 		Value constantIndex;
 		tableGet(&vm.globalConstantIndex, &OBJ_KEY(objString), &constantIndex);
 		if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == true) {
-			error("Attempt to re-declare variable already declared with type qualifier 'const'.");
+			error("Attempt to re-declare identifier already declared with type qualifier 'const'.");
 		}
 		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false) {
 			error("Attempt to re-declare variable type qualifier.");
@@ -549,6 +549,18 @@ static void literal(bool canAssign) {
 	}
 }
 
+static void dot(bool canAssign) {
+	consume(TOKEN_IDENTIFIER, "Expect property name after '.'");
+	int name = addConstant(currentChunk(), OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length)), false);
+	
+	if (canAssign && match(TOKEN_EQUAL)) {
+		expression();
+		emitOpAndConstant(OP_SET_PROPERTY, name);
+	} else {
+		emitOpAndConstant(OP_GET_PROPERTY, name);
+	}
+}
+
 
 static void grouping(bool canAssign) {
 	expression();
@@ -652,7 +664,7 @@ ParseRule rules[] = {
 	[TOKEN_LEFT_BRACE]= {NULL,NULL,PREC_NONE},
 	[TOKEN_RIGHT_BRACE]= {braceError,NULL,PREC_NONE},
 	[TOKEN_COMMA]= {NULL,NULL,PREC_NONE},
-	[TOKEN_DOT]= {NULL,NULL,PREC_NONE},
+	[TOKEN_DOT]= {NULL,dot,PREC_CALL},
 	[TOKEN_MINUS]= {unary,binary,PREC_TERM},
 	[TOKEN_PLUS]= {NULL,binary,PREC_TERM},
 	[TOKEN_SEMICOLON]= {NULL,NULL,PREC_NONE},
@@ -782,11 +794,36 @@ static void function(FunctionType type) {
 	}
 }
 
+static void classDeclaration() {
+	consume(TOKEN_IDENTIFIER, "Expect class name.");
+	uint8_t nameConstant = identifierConstantDeclaration(&parser.previous, true);
+	declareVariable(true);
+	
+	emitOpAndConstant(OP_CLASS, nameConstant);
+	defineVariable(nameConstant);
+	
+	consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+	consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+}
+
 static void functionDeclaration() {
 	uint8_t global = parseVariable("Expect function name.", true);
 	markInitialized();
 	function(TYPE_FUNCTION);
 	defineVariable(global);
+}
+
+static void deleteAttribute() {
+	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'del_attr' token.");
+	uint8_t argCount = 0;
+	do {
+		expression();
+		argCount++;
+	} while (match(TOKEN_COMMA) && argCount < 2);
+	
+	consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+	consume(TOKEN_SEMICOLON, "Expect ';' after 'del_attr' function call.");
+	emitByte(OP_DELATTR);
 }
 
 static void varDeclaration(bool isConst) {
@@ -1148,10 +1185,14 @@ static void synchronize() {
 // The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
 
 static void declaration(controlFlow* controls) {
-	if (match(TOKEN_DEF)){
+	if (match(TOKEN_CLASS)) {
+		classDeclaration();
+	} else if (match(TOKEN_DEF)){
 		functionDeclaration();	
 	} else if (match(TOKEN_VAR)) {
 		varDeclaration(false);
+	} else if (match(TOKEN_DELATTR)) {
+		deleteAttribute();
 	} else {
 		statement(controls);
 	}
