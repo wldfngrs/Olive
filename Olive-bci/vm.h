@@ -27,6 +27,7 @@ typedef struct {
 	Value* stackTop;
 	Table globals;
 	Table strings;
+	ObjString* initString;
 	Table globalConstantIndex; // probably find a better name
 	int nativeIdentifierCount;
 	const char* nativeIdentifiers[NATIVE_ID_MAX];

@@ -55,6 +55,8 @@ typedef enum {
 	OP_CONTINUE,
 	OP_RETURN,
 	OP_CLASS,
+	OP_INVOKE,
+	OP_METHOD
 } OpCode;
 
 typedef struct {

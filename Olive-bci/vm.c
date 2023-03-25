@@ -48,7 +48,7 @@ static void runtimeError(const char* format, ...) {
 
 static Value clockNative(int argCount, Value* args) {
 	if (argCount != 0) {
-		runtimeError("Error: 'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead", argCount);
+		runtimeError("Error: 'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead, ", argCount);
 		return NULL_VAL;
 	}
 	
@@ -77,8 +77,13 @@ void initVM() {
 	vm.grayStack = NULL;
 	
 	initTable(&vm.globals);
+	
 	initTable(&vm.strings);
+	vm.initString = NULL;
+	vm.initString = allocateString(false, "init", 4);
+	
 	initTable(&vm.globalConstantIndex);
+	
 	vm.nativeIdentifierCount = 0;
 	
 	defineNative("clock", clockNative);
@@ -88,6 +93,7 @@ void freeVM() {
 	freeTable(&vm.globals);
 	freeTable(&vm.globalConstantIndex);
 	freeTable(&vm.strings);
+	vm.initString = NULL;
 	if (REPLmode && vm.frameCount != 0) {
 		freeValueArray(vm.frames[0].closure->function->chunk.constants);
 	}
@@ -97,7 +103,9 @@ void freeVM() {
 
 void push(Value value) {
 	if(vm.stack.capacity <  vm.stack.count + 1) {
+		int temp = vm.stackTop - vm.stack.stack;
 		growStack(&vm.stack);
+		vm.stackTop = vm.stack.stack + temp;
 	}
 	
 	*vm.stackTop = value;
@@ -121,12 +129,12 @@ static Value peek(int distance) {
 
 static bool call(ObjClosure* closure, int argCount) {
 	if (argCount != closure->function->arity) {
-		runtimeError("Error: '%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
+		runtimeError("Error: '%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead, ", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
 		return false;
 	}
 	
 	if (vm.frameCount == FRAMES_MAX) {
-		runtimeError("Error: Stack overflow. :)");
+		runtimeError("Error: Stack overflow. :), ");
 		return false;
 	}
 
@@ -141,9 +149,25 @@ static bool call(ObjClosure* closure, int argCount) {
 static bool callValue(Value callee, int argCount) {
 	if(IS_OBJ(callee)) {
 		switch(OBJ_TYPE(callee)) {
+			case OBJ_BOUND_METHOD: {
+				ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+				vm.stackTop[-argCount - 1] = bound->reciever;
+				return call(bound->method, argCount);
+			}
+			
 			case OBJ_CLASS: {
 				ObjClass* c = AS_CLASS(callee);
 				vm.stackTop[-argCount - 1] = OBJ_VAL(newInstance(c));
+				Value initializer;
+				if (!IS_NULL(c->initCall)) {
+					return call(AS_CLOSURE(c->initCall), argCount);	
+				} else if (tableGet(&c->methods, &OBJ_KEY(vm.initString), &initializer)) {
+					return call(AS_CLOSURE(initializer), argCount);
+				} else if (argCount != 0) {
+					runtimeError("Error: Expected 0 arguments but got %d, ");
+					return false;
+				}
+				
 				return true;
 			}
 			
@@ -168,8 +192,51 @@ static bool callValue(Value callee, int argCount) {
 		}
 	}
 	
-	runtimeError("Error: Non-callable object type");
+	runtimeError("Error: Non-callable object type, ");
 	return false;
+}
+
+static bool invokeFromClass(ObjClass* c, ObjString* name, int argCount) {
+	Value method;
+	if (!tableGet(&c->methods, &OBJ_KEY(name), &method)) {
+		runtimeError("Undefined property '%.*s', ", name->length, name->chars);
+		return false;
+	}
+	
+	return call(AS_CLOSURE(method), argCount);
+}
+
+static bool invoke(ObjString* name, int argCount) {
+	Value reciever = peek(argCount);
+	
+	if (!IS_INSTANCE(reciever)) {
+		runtimeError("Error: Attempt to call method on non-instance, ");
+		return false;
+	}
+	
+	ObjInstance* instance = AS_INSTANCE(reciever);
+	
+	Value value;
+	if (tableGet(&instance->fields, &OBJ_KEY(name), &value)) {
+		vm.stackTop[-argCount - 1] = value;
+		return callValue(value, argCount);
+	}
+	
+	return invokeFromClass(instance->c, name, argCount);
+}
+
+static bool bindMethod(ObjClass* c, ObjString* name) {
+	Value method;
+	if(!tableGet(&c->methods, &OBJ_KEY(name), &method)) {
+		runtimeError("Error: Undefined property '%.*s', ", name->length, name->chars);
+		return false;
+	}
+	
+	ObjBoundMethod* bound = newBoundMethod(peek(0), AS_CLOSURE(method));
+	
+	pop(1);
+	push(OBJ_VAL(bound));
+	return true;
 }
 
 static ObjUpvalue* captureUpValue(Value* local) {
@@ -204,6 +271,17 @@ static void closeUpvalues(Value* last) {
 		upvalue->location = &upvalue->closed;
 		vm.openUpvalues = upvalue->next;
 	}
+}
+
+static void defineMethod(ObjString* name) {
+	Value method = peek(0);
+	ObjClass* c = AS_CLASS(peek(1));
+	tableSet(&c->methods, &OBJ_KEY(name), method);
+	if (name == vm.initString) {
+		c->initCall = method;
+	}
+	
+	pop(1);
 }
 
 static bool isFalsey(Value value) {
@@ -346,8 +424,11 @@ static InterpretResult run() {
 					break;
 				}
 				
-				runtimeError("Error: Undefined property '%.*s', ", name->length, name->chars);
-				return INTERPRET_RUNTIME_ERROR;
+				//runtimeError("Error: Undefined property '%.*s', ", name->length, name->chars);
+				if (!bindMethod(instance->c, name)) {
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				break;
 			}
 			
 			case OP_SET_PROPERTY: {
@@ -515,6 +596,16 @@ static InterpretResult run() {
 				break;
 			}
 			
+			case OP_INVOKE: {
+				ObjString* method = READ_STRING();
+				int argCount = READ_BYTE();
+				if (!invoke(method, argCount)) {
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				frame = &vm.frames[vm.frameCount - 1];
+				break;
+			}
+			
 			case OP_CLOSURE: {
 				ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
 				ObjClosure* closure = newClosure(function);
@@ -550,8 +641,10 @@ static InterpretResult run() {
 					return INTERPRET_OK;
 				}
 				
+				int temp = vm.stackTop - frame->slots;
 				vm.stackTop = frame->slots;
 				push(result);
+				vm.stack.count -= temp;
 				
 				frame = &vm.frames[vm.frameCount - 1];
 				break;
@@ -559,6 +652,11 @@ static InterpretResult run() {
 			
 			case OP_CLASS: {
 				push(OBJ_VAL(newClass(READ_STRING())));
+				break;
+			}
+			
+			case OP_METHOD: {
+				defineMethod(READ_STRING());
 				break;
 			}
 		}

@@ -63,6 +63,8 @@ typedef struct {
 
 typedef enum {
 	TYPE_FUNCTION,
+	TYPE_INITIALIZER,
+	TYPE_METHOD,
 	TYPE_SCRIPT,
 } FunctionType;
 
@@ -77,9 +79,16 @@ struct Compiler {
 	int scopeDepth;
 };
 
+typedef struct ClassCompiler {
+	struct ClassCompiler* enclosing;
+	Token name;
+} ClassCompiler;
+
 typedef struct Compiler Compiler;
 
 Parser parser;
+
+ClassCompiler* currentClass = NULL;
 
 Compiler* current = NULL; // page 394. modify for "principled engineers"
 
@@ -224,10 +233,6 @@ static int emitJump(uint8_t instruction) {
 	return currentChunk()->count - 2;
 }
 
-static void emitReturn() {
-	emitByte(OP_NULL);
-	emitByte(OP_RETURN);
-}
 /*
 static uint8_t makeConstant(Value value) {
 	int constant = addConstant(currentChunk(), value);
@@ -266,8 +271,13 @@ static void initCompiler(Compiler* compiler, FunctionType type, ValueArray* cons
 	Local* local = &current->locals[current->localCount++];
 	local->depth = 0;
 	local->isCaptured = false;
-	local->name.start = "";
-	local->name.length = 0;
+	if (type != TYPE_FUNCTION) {
+		local->name.start = "this";
+		local->name.length = 4;
+	} else {
+		local->name.start = "";
+		local->name.length = 0;
+	}
 	clearLineInfo();
 }
 
@@ -281,6 +291,17 @@ static void emitOpAndConstant(uint8_t byte, int constant) {
 		writeChunk(currentChunk(), (uint8_t)((constant >> 16) & 0xff), parser.previous.line);
 	}
 }
+
+static void emitReturn() {
+	if (current->type == TYPE_INITIALIZER) {
+		emitOpAndConstant(OP_GET_LOCAL, 0);
+	} else {
+		emitByte(OP_NULL);
+	}
+	
+	emitByte(OP_RETURN);
+}
+
 
 static ObjFunction* endCompiler() {
 	emitReturn();
@@ -556,6 +577,10 @@ static void dot(bool canAssign) {
 	if (canAssign && match(TOKEN_EQUAL)) {
 		expression();
 		emitOpAndConstant(OP_SET_PROPERTY, name);
+	} else if (match(TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList();
+		emitOpAndConstant(OP_INVOKE, name);
+		emitByte(argCount);
 	} else {
 		emitOpAndConstant(OP_GET_PROPERTY, name);
 	}
@@ -619,6 +644,15 @@ static void namedVariable(Token name, bool canAssign) {
 
 static void variable(bool canAssign) {
 	namedVariable(parser.previous, canAssign);
+}
+
+static void this_(bool canAssign) {
+	if (currentClass == NULL) {
+		error("Attempt to use 'this' token outside of a class scope.");
+		return;
+	}
+	
+	variable(false);
 }
 
 static void unary(bool canAssign) {
@@ -694,7 +728,7 @@ ParseRule rules[] = {
 	[TOKEN_PRINT]= {NULL,NULL,PREC_NONE},
 	[TOKEN_RETURN]= {NULL,NULL,PREC_NONE},
 	[TOKEN_BASE]= {NULL,NULL,PREC_NONE},
-	[TOKEN_THIS]= {NULL,NULL,PREC_NONE},
+	[TOKEN_THIS]= {this_,NULL,PREC_NONE},
 	[TOKEN_TRUE]= {literal,NULL,PREC_NONE},
 	[TOKEN_VAR]= {NULL,NULL,PREC_NONE},
 	[TOKEN_WHILE]= {NULL,NULL,PREC_NONE},
@@ -794,16 +828,40 @@ static void function(FunctionType type) {
 	}
 }
 
+static void method() {
+	consume(TOKEN_IDENTIFIER, "Expect method name.");
+	int constant = identifierConstantDeclaration(&parser.previous, true);
+	
+	FunctionType type = TYPE_METHOD;
+	if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0) {
+		type = TYPE_INITIALIZER;
+	}
+	
+	function(type);
+	emitOpAndConstant(OP_METHOD, constant);
+}
+
 static void classDeclaration() {
 	consume(TOKEN_IDENTIFIER, "Expect class name.");
+	Token className = parser.previous;
 	uint8_t nameConstant = identifierConstantDeclaration(&parser.previous, true);
 	declareVariable(true);
 	
 	emitOpAndConstant(OP_CLASS, nameConstant);
 	defineVariable(nameConstant);
 	
+	ClassCompiler classCompiler;
+	classCompiler.name = parser.previous;
+	classCompiler.enclosing = currentClass;
+	currentClass = &classCompiler;
+	
+	namedVariable(className, false);
 	consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+	while(!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+		method();
+	}
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+	emitByte(OP_POP);
 }
 
 static void functionDeclaration() {
@@ -1101,12 +1159,16 @@ static void printStatement() {
 
 static void returnStatement() {
 	if (current->type == TYPE_SCRIPT) {
-		error("Can't return from top-level code.");
+		error("'return' token not within a function statement.");
 	}
 	
 	if (match(TOKEN_SEMICOLON)) {
 		emitReturn();
 	} else {
+		if (current->type == TYPE_INITIALIZER) {
+			error("Can't return a value from an initiliazer.");
+		}
+		
 		expression();
 		consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
 		emitByte(OP_RETURN);

@@ -73,9 +73,18 @@ static void blackenObject(Obj* object) {
 	printf("\n");
 #endif
 	switch(object->type) {
+		case OBJ_BOUND_METHOD: {	
+			ObjBoundMethod* bound = (ObjBoundMethod*)object;
+			markValue(bound->reciever);
+			markObject((Obj*)bound->method);
+			break;
+		}
+		
 		case OBJ_CLASS: {
 			ObjClass* c = (ObjClass*)object;
 			markObject((Obj*)c->name);
+			markTable(&c->methods);
+			markValue(c->initCall);
 			break;	
 		}
 		
@@ -91,6 +100,7 @@ static void blackenObject(Obj* object) {
 			ObjFunction* function = (ObjFunction*)object;
 			markObject((Obj*)function->name);
 			markArray(function->chunk.constants);
+			break;
 		}
 		
 		case OBJ_INSTANCE: {
@@ -114,7 +124,13 @@ static void freeObject(Obj* object) {
 	printf("%p free type %d\n", (void*)object, object->type);
 #endif
 	switch(object->type) {
+		case OBJ_BOUND_METHOD: {
+			FREE(ObjBoundMethod, object);
+			break;
+		}
 		case OBJ_CLASS: {
+			ObjClass* c = (ObjClass*)object;
+			freeTable(&c->methods);
 			FREE(ObjClass, object);
 			break;
 		}
@@ -178,6 +194,7 @@ static void markRoots() {
 	markTable(&vm.globals);
 	markTable(&vm.globalConstantIndex);
 	markCompilerRoots();
+	markObject((Obj*)vm.initString);
 }
 
 // A black object is any object whose isMarked field is set and that is no longer in the gray stack
