@@ -6,6 +6,18 @@
 #include "vm.h"
 #include <stdio.h>
 
+char* welcome_text = {
+"        888\n"
+" .d88b. 888  .d888   888   888 .d88b.\n"
+"888  888888    888   888   888d8P  Y8b\n"
+"888  888888    888   888  .d8 88888888\n"
+"888  888888    888   888 .d8  8b.\n"
+" \"Y88P\"  \"Y88P\"\"Y88P\" \"Y8Y\"   \"Y8888P\"\n"
+};
+
+char* version_text = {"Olive Interpreter v0.0.1 (Mar 27 2023, 17:53:14) [GCC 11.2.0] on linux\nCopyright(C) 2023 wldfngrs, https://github.com/wldfngrs/Olive"};
+
+
 bool REPLmode = false;
 int currentLength = 0;
 int prevLength = 0;
@@ -21,6 +33,8 @@ static bool quit(char* line) {
 // modify hardcoded line limit
 static void repl() {
 	REPLmode = true;
+	printf("%s\n", welcome_text);
+	printf("\e[1;32m%s\n\n\e[0m", version_text);
 	char line[1024];
 	for(;;) {
 		printf("> ");
@@ -35,7 +49,7 @@ static void repl() {
 		
 		if (quit(line)) {
 			withinREPL = false;
-			printf("Quit.\n");
+			printf("Exiting Olive.\n\n");
 			return;
 		}
 		

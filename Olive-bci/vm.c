@@ -37,9 +37,9 @@ static void runtimeError(const char* format, ...) {
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		fprintf(stderr, "[line %d] in ", getLine(&frame->closure->function->chunk, instruction));
 		if (function->name == NULL) {
-			fprintf(stderr, "script\n");
+			fprintf(stderr, "script\n\e[0m");
 		} else {
-			fprintf(stderr, "%.*s()\n", function->name->length, function->name->chars);
+			fprintf(stderr, "%.*s()\n\e[0m", function->name->length, function->name->chars);
 		}
 	}
 	
@@ -48,7 +48,7 @@ static void runtimeError(const char* format, ...) {
 
 static Value clockNative(int argCount, Value* args) {
 	if (argCount != 0) {
-		runtimeError("Error: 'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead, ", argCount);
+		runtimeError("\e[1;31mError: 'clock' function call expected 0 argument(s). Initialized with %d argument(s) instead, ", argCount);
 		return NULL_VAL;
 	}
 	
@@ -129,12 +129,12 @@ static Value peek(int distance) {
 
 static bool call(ObjClosure* closure, int argCount) {
 	if (argCount != closure->function->arity) {
-		runtimeError("Error: '%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead, ", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
+		runtimeError("\e[1;31mError: '%.*s' function call expected %d argument(s). Initialized with %d argument(s) instead, ", closure->function->name->length, closure->function->name->chars, closure->function->arity, argCount);
 		return false;
 	}
 	
 	if (vm.frameCount == FRAMES_MAX) {
-		runtimeError("Error: Stack overflow. :), ");
+		runtimeError("\e[1;31mError: Stack overflow. :), ");
 		return false;
 	}
 
@@ -164,7 +164,7 @@ static bool callValue(Value callee, int argCount) {
 				} else if (tableGet(&c->methods, &OBJ_KEY(vm.initString), &initializer)) {
 					return call(AS_CLOSURE(initializer), argCount);
 				} else if (argCount != 0) {
-					runtimeError("Error: Expected 0 arguments but got %d, ");
+					runtimeError("\e[1;31mError: Expected 0 arguments but got %d, ");
 					return false;
 				}
 				
@@ -192,14 +192,14 @@ static bool callValue(Value callee, int argCount) {
 		}
 	}
 	
-	runtimeError("Error: Non-callable object type, ");
+	runtimeError("\e[1;31mError: Non-callable object type, ");
 	return false;
 }
 
 static bool invokeFromClass(ObjClass* c, ObjString* name, int argCount) {
 	Value method;
 	if (!tableGet(&c->methods, &OBJ_KEY(name), &method)) {
-		runtimeError("Undefined property '%.*s', ", name->length, name->chars);
+		runtimeError("\e[1;31mUndefined property '%.*s', ", name->length, name->chars);
 		return false;
 	}
 	
@@ -210,7 +210,7 @@ static bool invoke(ObjString* name, int argCount) {
 	Value reciever = peek(argCount);
 	
 	if (!IS_INSTANCE(reciever)) {
-		runtimeError("Error: Attempt to call method on non-instance, ");
+		runtimeError("\e[1;31mError: Attempt to call method on non-instance, ");
 		return false;
 	}
 	
@@ -228,7 +228,7 @@ static bool invoke(ObjString* name, int argCount) {
 static bool bindMethod(ObjClass* c, ObjString* name) {
 	Value method;
 	if(!tableGet(&c->methods, &OBJ_KEY(name), &method)) {
-		runtimeError("Error: Undefined property '%.*s', ", name->length, name->chars);
+		runtimeError("\e[1;31mError: Undefined property '%.*s', ", name->length, name->chars);
 		return false;
 	}
 	
@@ -376,7 +376,7 @@ static InterpretResult run() {
 				ObjString* name = READ_STRING();
 				Value value;
 				if (!tableGet(&vm.globals, &OBJ_KEY(name), &value)) {
-					runtimeError("Error: Undefined variable '%.*s', ", name->length, name->chars);
+					runtimeError("\e[1;31mError: Undefined variable '%.*s', ", name->length, name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				push(value);
@@ -391,7 +391,7 @@ static InterpretResult run() {
 				ObjString* name = READ_STRING();
 				if (tableSet(&vm.globals, &OBJ_KEY(name), peek(0))) {
 					tableDelete(&vm.globals, &OBJ_KEY(name));
-					runtimeError("Error: Undefined variable '%.*s', ", name->length, name->chars);
+					runtimeError("\e[1;31mError: Undefined variable '%.*s', ", name->length, name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -411,7 +411,7 @@ static InterpretResult run() {
 			
 			case OP_GET_PROPERTY: {
 				if (!IS_INSTANCE(peek(0))) {
-					runtimeError("Error: Attempt to access property of a non-instance, ");
+					runtimeError("\e[1;31mError: Attempt to access property of a non-instance, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				ObjInstance* instance = AS_INSTANCE(peek(0));
@@ -433,7 +433,7 @@ static InterpretResult run() {
 			
 			case OP_SET_PROPERTY: {
 				if (!IS_INSTANCE(peek(1))) {
-					runtimeError("Error: Only instances have fields, ");
+					runtimeError("\e[1;31mError: Only instances have fields, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				ObjInstance* instance = AS_INSTANCE(peek(1));
@@ -454,7 +454,16 @@ static InterpretResult run() {
 					break;
 				}
 				
-				runtimeError("Error: Attempt to delete non-existent field '%.*s', ", attr->length, attr->chars);
+				runtimeError("\e[1;31mError: Attempt to delete non-existent field '%.*s', ", attr->length, attr->chars);
+				break;
+			}
+			
+			OP_GET_BASE: {
+				ObjString* name = READ_STRING();
+				ObjClass* baseClass = AS_CLASS(pop(1));
+				if (!bindMethod(baseClass, name)) {
+					return INTERPRET_RUNTIME_ERROR;
+				}
 				break;
 			}
 			
@@ -512,7 +521,7 @@ static InterpretResult run() {
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
 				} else {
-					runtimeError("Error: Operands must be two numbers or two strings, ");
+					runtimeError("\e[1;31mError: Operands must be two numbers or two strings, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -525,7 +534,7 @@ static InterpretResult run() {
 				break;
 			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
-					runtimeError("Error: Operand must be a number, ");
+					runtimeError("\e[1;31mError: Operand must be a number, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				
@@ -606,6 +615,17 @@ static InterpretResult run() {
 				break;
 			}
 			
+			case OP_BASE_INVOKE: {
+				ObjString* method = READ_STRING();
+				int argCount = READ_BYTE();
+				ObjClass* baseClass = AS_CLASS(pop(1));
+				if (!invokeFromClass(baseClass, method, argCount)) {
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				frame = &vm.frames[vm.frameCount - 1];
+				break;
+			}
+			
 			case OP_CLOSURE: {
 				ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
 				ObjClosure* closure = newClosure(function);
@@ -655,6 +675,18 @@ static InterpretResult run() {
 				break;
 			}
 			
+			case OP_INHERIT: {
+				Value baseClass = peek(1);
+				if (!IS_CLASS(baseClass)) {
+					runtimeError("\e[1;31mError: Attempt to inherit from non-class object.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				ObjClass* derivedClass = AS_CLASS(peek(0));
+				tableAddAll(&AS_CLASS(baseClass)->methods, &derivedClass->methods);
+				pop(1); // pop the derived class
+				break;
+			}
+			
 			case OP_METHOD: {
 				defineMethod(READ_STRING());
 				break;
@@ -694,6 +726,7 @@ Chunk chunkREPL;
 InterpretResult interpretREPL(const char* source) {
 	ObjFunction* function = compileREPL(source);
 	if (function == NULL) {
+		withinREPL = true;
 		clearLineInfo();
 		return INTERPRET_COMPILE_ERROR;
 	}

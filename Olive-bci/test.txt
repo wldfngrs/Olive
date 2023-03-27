@@ -1,14 +1,5 @@
-class A {
-	init(a) {
-		print a;
-	}
+var a;
+for (a = 0; a < 1000; a = a + 1) {
+	print a;
 }
-
-var a = 0;
-
-var b = clock();
-while (a < 5000000) {
-	A("hell");
-	a = a + 1;
-}
-print clock() - b;
+print a;

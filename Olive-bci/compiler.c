@@ -82,6 +82,7 @@ struct Compiler {
 typedef struct ClassCompiler {
 	struct ClassCompiler* enclosing;
 	Token name;
+	bool hasBaseClass;
 } ClassCompiler;
 
 typedef struct Compiler Compiler;
@@ -110,7 +111,7 @@ static void errorAt(Token* token, const char* message) {
 	if (parser.panicMode) return;
 	parser.panicMode = true;
 
-	fprintf(stderr, "[line %d] Error", token->line);
+	fprintf(stderr, "\e[1;31m[line %d] Error", token->line);
 	
 	if (token->type == TOKEN_EOF) {
 		fprintf(stderr, " at end");
@@ -120,7 +121,7 @@ static void errorAt(Token* token, const char* message) {
 		fprintf(stderr, " at '%.*s'", token->length, token->start);
 	}
 	
-	fprintf(stderr, ": %s\n", message);
+	fprintf(stderr, ": %s\n\e[0m", message);
 	parser.hadError = true;
 }
 
@@ -361,7 +362,9 @@ static int identifierConstantDeclaration(Token* name, bool isConst) {
 		if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == true) {
 			error("Attempt to re-declare identifier already declared with type qualifier 'const'.");
 		}
-		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false) {
+		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false
+		&&
+		!REPLmode) {
 			error("Attempt to re-declare variable type qualifier.");
 		}
 		return (int)AS_NUMBER(constantIndex);
@@ -646,6 +649,36 @@ static void variable(bool canAssign) {
 	namedVariable(parser.previous, canAssign);
 }
 
+static Token syntheticToken(const char* text) {
+	Token token;
+	token.start = text;
+	token.length = (int)strlen(text);
+	return token;
+}
+
+static void base_(bool canAssign) {
+	if (currentClass == NULL) {
+		error("Attempt to use 'base' token outside of a class");
+	} else if (!currentClass->hasBaseClass) {
+		error("Attempt to use 'base' token in a non-derived class.");
+	}
+	
+	consume(TOKEN_DOT, "Expect '.' after 'base' token.");
+	consume(TOKEN_IDENTIFIER, "Expect 'base class' method name.");
+	uint8_t name = identifierConstantDeclaration(&parser.previous, true);
+	
+	namedVariable(syntheticToken("this"), false);
+	if (match(TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList();
+		namedVariable(syntheticToken("base"), false);
+		emitOpAndConstant(OP_BASE_INVOKE, name);
+		emitByte(argCount);
+	} else {
+		namedVariable(syntheticToken("base"), false);
+		emitOpAndConstant(OP_GET_BASE, name);
+	}
+}
+
 static void this_(bool canAssign) {
 	if (currentClass == NULL) {
 		error("Attempt to use 'this' token outside of a class scope.");
@@ -727,7 +760,7 @@ ParseRule rules[] = {
 	[TOKEN_OR]= {NULL,or_,PREC_NONE},
 	[TOKEN_PRINT]= {NULL,NULL,PREC_NONE},
 	[TOKEN_RETURN]= {NULL,NULL,PREC_NONE},
-	[TOKEN_BASE]= {NULL,NULL,PREC_NONE},
+	[TOKEN_BASE]= {base_,NULL,PREC_NONE},
 	[TOKEN_THIS]= {this_,NULL,PREC_NONE},
 	[TOKEN_TRUE]= {literal,NULL,PREC_NONE},
 	[TOKEN_VAR]= {NULL,NULL,PREC_NONE},
@@ -852,8 +885,26 @@ static void classDeclaration() {
 	
 	ClassCompiler classCompiler;
 	classCompiler.name = parser.previous;
+	classCompiler.hasBaseClass = false;
 	classCompiler.enclosing = currentClass;
 	currentClass = &classCompiler;
+	
+	if (match(TOKEN_COLON)) {
+		consume(TOKEN_IDENTIFIER, "Expect 'base class' name.");
+		variable(false);
+		if (identifiersEqual(&className, &parser.previous)) {
+			// Improve error message to include the actual class attempting to self-inherit.
+			error("A class cannot inherit from itself.");
+		}
+		
+		beginScope();
+		addLocal(syntheticToken("base"), true);
+		defineVariable(0);
+		
+		namedVariable(className, false);
+		emitByte(OP_INHERIT);
+		classCompiler.hasBaseClass = true;
+	}
 	
 	namedVariable(className, false);
 	consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
@@ -862,6 +913,12 @@ static void classDeclaration() {
 	}
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
 	emitByte(OP_POP);
+	
+	if (classCompiler.hasBaseClass) {
+		endScope();
+	}
+	
+	currentClass = currentClass->enclosing;
 }
 
 static void functionDeclaration() {
