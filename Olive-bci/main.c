@@ -59,10 +59,28 @@ static void repl() {
 	}
 }
 
+static int checkExtension(const char* path) {
+	char* extension = strstr(path, ".");
+	if (extension == NULL) {
+		return -1;
+	}
+	
+	if (memcmp(extension, ".olv", 4) == 0) {
+		return 0;
+	} else {
+		return -1;
+	}
+}
+
 static char* readFile(const char* path) {
+	if (checkExtension(path) == -1){
+		fprintf(stderr, "\e[1;31mWrong file type. File must be a .olv file\n\e[0m");
+		exit(70);
+	}
+	
 	FILE* file = fopen(path, "rb");
 	if (file == NULL){
-		fprintf(stderr, "Failed to open file \"%s\".\n", path);
+		fprintf(stderr, "\e[1;31mFailed to open file \"%s\".\n\e[0m", path);
 		exit(74);
 	}
 	
@@ -72,12 +90,12 @@ static char* readFile(const char* path) {
 	
 	char* buffer = (char*)malloc(fileSize + 1);
 	if (buffer == NULL) {
-		fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
+		fprintf(stderr, "\e[1;31mNot enough memory to read \"%s\".\n\e[0m", path);
 		exit(74);
 	}
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
 	if(bytesRead < fileSize) {
-		fprintf(stderr, "Could not read file \"%s\".\n", path);
+		fprintf(stderr, "\e[1;31mCould not read file \"%s\".\n\e[0m", path);
 		exit(74);
 	}
 	buffer[bytesRead] = '\0';
