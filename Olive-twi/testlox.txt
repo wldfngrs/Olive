@@ -1,6 +1,0 @@
-/* Test C-Style block comments
-to see if Lox Scanner will skip them
-as intended!
-*/
-
-2+2 = 4;
