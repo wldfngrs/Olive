@@ -13,8 +13,6 @@
 #include "debug.h"
 #endif
 
-bool withinLoopOrSwitch = false;
-bool withinLoop = false;
 bool scannedPastNewLine = false;
 int breakGlobal = 0; // 0 if break not executed.
 ValueArray constants;
@@ -34,6 +32,7 @@ typedef enum {
 	PREC_AND,
 	PREC_EQUALITY,
 	PREC_COMPARISON,
+	PREC_INTERPOLATION,
 	PREC_TERM,
 	PREC_FACTOR,
 	PREC_UNARY,
@@ -217,14 +216,11 @@ static void emitLoop(int loopStart) {
 	emitByte(offset & 0xff);
 }
 
-static void emitContinue(int continueStart) {
-	emitByte(OP_CONTINUE);
-	
-	int offset = currentChunk()->count - continueStart + 2;
-	if(offset > UINT16_MAX) error("Loop body too large.");
-	
-	emitByte((offset >> 8) & 0xff);
-	emitByte(offset & 0xff);
+static void emitContinue(int* continueStart, uint8_t instruction) {
+	emitByte(instruction);
+	emitByte(0xff);
+	emitByte(0xff);
+	*continueStart = currentChunk()->count - 2;
 }
 
 static int emitJump(uint8_t instruction) {
@@ -550,6 +546,7 @@ static void binary(bool canAssign) {
 		case TOKEN_LESS: emitByte(OP_LESS); break;
 		case TOKEN_LESS_EQUAL: emitByte(OP_LESS_EQUAL); break;
 		case TOKEN_PLUS: emitByte(OP_ADD); break;
+		case TOKEN_CONCAT: emitByte(OP_ADD); break;
 		case TOKEN_MINUS: emitByte(OP_SUBTRACT); break;
 		case TOKEN_STAR: emitByte(OP_MULTIPLY); break;
 		case TOKEN_SLASH: emitByte(OP_DIVIDE); break;
@@ -612,7 +609,11 @@ static void or_(bool canAssign) {
 }
 
 static void string(bool canAssign) {
-	emitConstant(OBJ_VAL(allocateString(false, parser.previous.start + 1, parser.previous.length - 2)));
+	if (*(parser.previous.start) == '"') {
+		emitConstant(OBJ_VAL(allocateString(false, parser.previous.start + 1, parser.previous.length - 2)));
+	} else if (*(parser.previous.start) == ' ') {
+		emitConstant(OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length - 1)));
+	}
 }
 
 static void namedVariable(Token name, bool canAssign) {
@@ -648,6 +649,11 @@ static void namedVariable(Token name, bool canAssign) {
 static void variable(bool canAssign) {
 	namedVariable(parser.previous, canAssign);
 }
+
+static void interpolation(bool canAssign) {
+	emitConstant(OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length - 1)));
+}
+
 
 static Token syntheticToken(const char* text) {
 	Token token;
@@ -772,6 +778,8 @@ ParseRule rules[] = {
 	[TOKEN_CONTINUE] = {continueError, NULL, PREC_NONE},
 	[TOKEN_CONST] = {NULL, NULL, PREC_NONE},
 	[TOKEN_EOF]= {NULL,NULL,PREC_NONE},
+	[TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
+	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION}
 };
 
 static void parsePrecedence(Precedence precedence) {
@@ -969,11 +977,16 @@ static void breakStatement(controlFlow* controls) {
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'break' statement.");
 }
 
+int switchLevel = 0;
 static void continueStatement(controlFlow* controls) {
-	emitContinue(controls->continuePoint);
+	if (controls->cpCapacity < controls->cpCount + 1) {
+		growCpControlFlow(controls);
+	}
+	controls->continuePoint[controls->cpCount++] = emitJump(OP_CONTINUE);
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'continue' statement.");
 }
 
+int loopLevel = 0;
 static void forStatement() {
 	beginScope();
 	
@@ -1010,7 +1023,6 @@ static void forStatement() {
 		int bodyJump = emitJump(OP_JUMP);
 		
 		int incrementStart = currentChunk()->count;
-		controls.continuePoint = incrementStart;
 		expression();
 		emitByte(OP_POP);
 		consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'for' clauses.");
@@ -1031,8 +1043,7 @@ static void forStatement() {
 		innerVariable = current->localCount - 1;
 	}
 	
-	withinLoopOrSwitch = true;
-	withinLoop = true;
+	loopLevel++;
 	
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
 		declaration(&controls);
@@ -1043,6 +1054,10 @@ static void forStatement() {
 				continueParsingOnBreak1();
 			}
 		}
+	}
+	
+	for (int i = 0; i < controls.cpCount; i++) {
+		patchJump(controls.continuePoint[i]);
 	}
 	
 	if (loopVariableSlot != -1) {
@@ -1069,9 +1084,8 @@ static void forStatement() {
 	}
 	
 	endScope();
-	withinLoopOrSwitch = false;
-	withinLoop = false;
 	freeControlFlow(&controls);
+	loopLevel--;
 }
 
 
@@ -1120,7 +1134,8 @@ static void ifStatement(controlFlow* controls) {
 	patchJump(elseJump);
 }
 
-static void switchStatement() {
+static void switchStatement(controlFlow* prevControl) {
+	switchLevel++;
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch' token.");
 	expression();
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'switch' expression.");
@@ -1131,6 +1146,7 @@ static void switchStatement() {
 	int jumpPresentCase = 0;
 	controlFlow controls;
 	initControlFlow(&controls);
+	controls.prev = prevControl;
 	
 	for(int i = 0;;i++) {
 		if ((parser.current.type == TOKEN_RIGHT_BRACE) || (parser.current.type == TOKEN_SWITCHDEFAULT)) {
@@ -1139,7 +1155,6 @@ static void switchStatement() {
 		consume(TOKEN_SWITCHCASE, "Expect 'case' token.");
 		expression();
 		consume(TOKEN_COLON, "Expect ':' before case statement.");
-		withinLoopOrSwitch = true;
 		
 		emitByte(OP_SWITCH_EQUAL);
 	
@@ -1198,14 +1213,12 @@ static void switchStatement() {
 	for (int i = 0; i < controls.count; i++) {
 		patchJump(controls.exits[i]);
 	}
+	emitByte(OP_POP);
 	
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' to close 'switch' statement.");
 	endScope();
-	emitByte(OP_POP);
-	
-	withinLoopOrSwitch = false;
-	
 	freeControlFlow(&controls);
+	switchLevel--;
 }
 
 static void printStatement() {
@@ -1235,12 +1248,11 @@ static void returnStatement() {
 static void whileStatement() {
 	int breakJump = 0;
 	
-	withinLoopOrSwitch = true;
-	withinLoop = true;
+	loopLevel++;
 	int loopStart = currentChunk()->count;
 	controlFlow controls;
 	initControlFlow(&controls);
-	controls.continuePoint = loopStart;
+	//controls.continuePoint = loopStart;
 	int exitIndex = 0;
 	
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while' statement.");
@@ -1263,17 +1275,21 @@ static void whileStatement() {
 	
 	if (breakGlobal == 1) breakGlobal = 0;
 	
+	for (int i = 0; i < controls.cpCount; i++) {
+		patchJump(controls.continuePoint[i]);
+	}
+	
 	emitLoop(loopStart);
+	
+	patchJump(exitJump);
+	emitByte(OP_POP);
 	
 	for (int i = 0; i < controls.count; i++) {
 		patchJump(controls.exits[i]);
 	}
 	
-	patchJump(exitJump);
-	emitByte(OP_POP);
-	withinLoopOrSwitch = false;
-	withinLoop = false;
 	freeControlFlow(&controls);
+	loopLevel--;
 }
 
 static void synchronize() {
@@ -1329,10 +1345,16 @@ static void statement(controlFlow* controls) {
 	if(match(TOKEN_PRINT)) {
 		printStatement();
 	} else if (match(TOKEN_BREAK)) {
-		if (!withinLoopOrSwitch) breakError(false);
+		if (loopLevel == 0 && switchLevel == 0) breakError(false);
 		breakStatement(controls);
 	} else if (match(TOKEN_CONTINUE)) {
-		if (!withinLoop) continueError(false);
+		if (loopLevel == 0) continueError(false);
+		if (switchLevel > 0) {
+			emitByte(OP_POP);
+			continueStatement(controls->prev);
+			return;
+		}
+		
 		continueStatement(controls);
 	} else if (match(TOKEN_FOR)) {
 		forStatement();
@@ -1341,7 +1363,7 @@ static void statement(controlFlow* controls) {
 	} else if (match(TOKEN_RETURN)) {
 		returnStatement();
 	} else if (match(TOKEN_SWITCH)) {
-		switchStatement();
+		switchStatement(controls);
 	} else if (match(TOKEN_WHILE)) {
 		whileStatement();
 	} else if (match(TOKEN_LEFT_BRACE)) {
@@ -1371,14 +1393,14 @@ ObjFunction* compile(const char* source) {
 	Compiler compiler;
 	initCompiler(&compiler, TYPE_SCRIPT, &constants);
 	addNativeIdentifiers();
-	controlFlow* controls;
+	//controlFlow* controls;
 	
 	parser.hadError = false;
 	parser.panicMode = false;
 	advance();
 	
 	while (!match(TOKEN_EOF)) {
-		declaration(controls);
+		declaration(NULL);
 	}
 	
 	ObjFunction* function = endCompiler();
@@ -1393,14 +1415,14 @@ ObjFunction* compileREPL(const char* source) {
 	Compiler compiler;
 	initCompiler(&compiler, TYPE_SCRIPT, &constants);
 	addNativeIdentifiers();
-	controlFlow* controls;
+	//controlFlow* controls;
 	
 	parser.hadError = false;
 	parser.panicMode = false;
 	advance();
 	
 	while (!match(TOKEN_EOF)) {
-		declaration(controls);
+		declaration(NULL);
 	}
 	
 	ObjFunction* function = endCompiler();

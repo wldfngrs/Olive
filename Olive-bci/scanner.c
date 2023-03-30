@@ -6,6 +6,7 @@
 
 static int interpolationCount = 0;
 static bool inInterpolation = false;
+static bool jsi = false; // jsi -- justScannedInterpolation. Set when the scanner has scanned passed all the interpolation tokens in a given string.
 
 typedef struct {
 	const char* start;
@@ -85,6 +86,8 @@ static Token errorToken(const char* message) {
 bool newLine = false;
 
 static void skipWhitespace() {
+	if (inInterpolation) return;
+	
 	for(;;) {
 		char c = peek();
 		switch(c) {
@@ -224,6 +227,9 @@ static Token string() {
 }
 
 static Token identifier() {
+	if (jsi) {
+		return string();
+	}
 	while(isAlpha(peek()) || isDigit(peek())) advance();
 	
 	return makeToken(identifierType());
@@ -265,20 +271,35 @@ Token scanToken() {
 	if (isDigit(c)) return number();
 	
 	switch(c) {
+		case ' ': {
+			if (inInterpolation) return identifier();
+			break;
+		}
 		case '(': return makeToken(TOKEN_LEFT_PAREN);
 		case ')': return makeToken(TOKEN_RIGHT_PAREN);
 		case '{': 
 			if (inInterpolation) {
 				interpolationCount++;
-				return scanToken();
+				//return scanToken();
+				Token concat;
+				concat.start = NULL;
+				concat.type = TOKEN_CONCAT;
+				concat.length = 0;
+				concat.line = scanner.line;
+				return concat;
 			}
 			
 			return makeToken(TOKEN_LEFT_BRACE);
 		case '}': 
 			if (inInterpolation) {
 				interpolationCount--;
-				scanner.start++;
-				return string();
+				if (interpolationCount == 0) jsi = true;
+				Token concat;
+				concat.start == NULL;
+				concat.type = TOKEN_CONCAT;
+				concat.length = 0;
+				concat.line = scanner.line;
+				return concat;
 			}
 			
 			return makeToken(TOKEN_RIGHT_BRACE);

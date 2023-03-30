@@ -307,6 +307,114 @@ static void concatenate() {
 	push(OBJ_VAL(result));
 }
 
+static void convconcatenate() {
+	Value a = peek(0);
+	Value b = peek(1);
+	
+	int length = 0;
+	char* result = ALLOCATE(char, 1024); // not a great use of memory, sigh, I know
+	
+	if (result == NULL) {
+		runtimeError("\e[1;31mError: Unexpected memory allocation error.");
+	}
+	
+	switch(b.type) {
+		case VAL_BOOL: {
+			bool bl = AS_BOOL(b);
+			if (bl == true) {
+				memcpy(result+length, "true", 4);
+				length += 4;
+			} else {
+				memcpy(result+length, "false", 5);
+				length += 5;
+			}
+			break;
+		}
+		
+		case VAL_NULL: {
+			memcpy(result+length, "NULL", 4);
+			length += 4;
+			break;
+		}
+		
+		case VAL_NUMBER: {
+			long long int len = snprintf(NULL, 0, "%g", AS_NUMBER(b));
+			char* str = ALLOCATE(char, len + 1);
+			snprintf(str, len + 1, "%g", AS_NUMBER(b));
+			memcpy(result + length, str, len);	
+			length += len;
+			break;		
+			break;		
+		}
+		
+		case VAL_OBJ: {
+			if(!IS_STRING(b)) {
+				runtimeError("\e[1;31mError: Invalid operands for string conversion");
+			}
+			
+			ObjString* str = AS_STRING(b);
+			memcpy(result + length, str->chars, str->length);
+			length += str->length;
+			break;
+		}
+		
+		default: {
+			runtimeError("\e[1;31mError: Invalid operands for string conversion.");
+		}
+			
+	}
+	
+	switch(a.type) {
+		case VAL_BOOL: {
+			bool bl = AS_BOOL(a);
+			if (bl == true) {
+				memcpy(result+length, "true", 4);
+				length += 4;
+			} else {
+				memcpy(result+length, "false", 5);
+				length += 5;
+			}
+			break;
+		}
+		
+		case VAL_NULL: {
+			memcpy(result+length, "NULL", 4);
+			length += 4;
+			break;
+		}
+		
+		case VAL_NUMBER: {
+			long long int len = snprintf(NULL, 0, "%g", AS_NUMBER(a));
+			char* str = ALLOCATE(char, len + 1);
+			snprintf(str, len + 1, "%g", AS_NUMBER(a));
+			memcpy(result + length, str, len);	
+			length += len;
+			break;		
+		}
+		
+		case VAL_OBJ: {
+			if(!IS_STRING(a)) {
+				runtimeError("\e[1;31mError: Invalid operands for string conversion");
+			}
+			ObjString* str = AS_STRING(a);
+			memcpy(result + length, str->chars, str->length);
+			length += str->length;
+			break;
+		}
+		
+		default: {
+			runtimeError("\e[1;31mError: Invalid operands for string conversion.");
+		}
+			
+	}
+	
+
+	result[length] = '\0';
+	ObjString* output = takeString(result, length);
+	pop(2);
+	push(OBJ_VAL(output));	
+}
+
 static InterpretResult run() {
 	CallFrame* frame = &vm.frames[vm.frameCount - 1];
 
@@ -458,7 +566,7 @@ static InterpretResult run() {
 				break;
 			}
 			
-			OP_GET_BASE: {
+			case OP_GET_BASE: {
 				ObjString* name = READ_STRING();
 				ObjClass* baseClass = AS_CLASS(pop(1));
 				if (!bindMethod(baseClass, name)) {
@@ -520,6 +628,8 @@ static InterpretResult run() {
 					double b = AS_NUMBER(pop(1));
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
+				} else if (IS_STRING(peek(0)) || IS_STRING(peek(1))) {
+					convconcatenate();
 				} else {
 					runtimeError("\e[1;31mError: Operands must be two numbers or two strings, ");
 					return INTERPRET_RUNTIME_ERROR;
@@ -567,7 +677,7 @@ static InterpretResult run() {
 			
 			case OP_CONTINUE: {
 				uint16_t offset = READ_SHORT();
-				frame->ip -= offset;
+				frame->ip += offset;
 				break;
 			}
 			/*case OP_BREAK: {

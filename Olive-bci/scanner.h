@@ -22,7 +22,7 @@ typedef enum {
 	TOKEN_ERROR, TOKEN_CONST, TOKEN_NEWLINE,
 	TOKEN_EOF,
 	// Placeholder tokens for string interpolation
-	TOKEN_INTERPOLATION
+	TOKEN_INTERPOLATION, TOKEN_CONCAT,
 } TokenType;
 
 typedef struct {
