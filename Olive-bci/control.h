@@ -2,7 +2,7 @@
 #define break_exit_h
 
 
-typedef struct {
+struct controlFlow {
 	struct controlFlow* prev;
 	int count;
 	int capacity;
@@ -10,7 +10,9 @@ typedef struct {
 	int cpCount;
 	int* exits;
 	int* continuePoint;	
-} controlFlow;
+};
+
+typedef struct controlFlow controlFlow;
 
 void initControlFlow(controlFlow* control);
 void freeControlFlow(controlFlow* control);

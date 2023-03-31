@@ -14,7 +14,7 @@
 
 #define SCOPE_COUNT 1000 // Increase to 32 bits if too little over time.
 
-extern bool REPLmode;
-extern bool withinREPL;
+extern bool REPLmode; /* Whether or not VM has *started* an REPL session. */
+extern bool withinREPL; /* Whether or not VM is *in* REPL session. */
 
 #endif

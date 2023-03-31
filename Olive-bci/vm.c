@@ -430,12 +430,23 @@ static InterpretResult run() {
 #define BINARY_OP(valueType, op)\
 	do { \
 		if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {\
-			runtimeError("Error: Operands must be numbers."); \
+			runtimeError("\e[1;31mError: Operands must be numbers."); \
 			return INTERPRET_RUNTIME_ERROR; \
 		}\
 		double b = AS_NUMBER(pop(1)); \
 		Value* stackTop = vm.stackTop - 1; \
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop) op b; \
+	} while (false)
+
+#define MOD_OP(valueType, op)\
+	do { \
+		if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {\
+			runtimeError("\e[1;31mError: Operands must be numbers."); \
+			return INTERPRET_RUNTIME_ERROR; \
+		}\
+		int b = AS_NUMBER(pop(1)); \
+		Value* stackTop = vm.stackTop - 1; \
+		AS_NUMBER(*stackTop) = ((int)AS_NUMBER(*stackTop)) op b; \
 	} while (false)
 
 	for (;;) {
@@ -639,6 +650,7 @@ static InterpretResult run() {
 			case OP_SUBTRACT: BINARY_OP(NUMBER_VAL, -); break;
 			case OP_MULTIPLY: BINARY_OP(NUMBER_VAL, *); break;
 			case OP_DIVIDE: BINARY_OP(NUMBER_VAL, /); break;
+			case OP_MOD: MOD_OP(NUMBER_VAL, %); break;
 			case OP_NOT:
 				push(BOOL_VAL(isFalsey(pop(1))));
 				break;

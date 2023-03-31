@@ -5,12 +5,15 @@
 #include "memory.h"
 #include "vm.h"
 
+/*	Clear debug line info. If the debug flags are uncommented in 'common.h' this function helps to clear any existing	 
+line info in the case of a parsing error. */
 void clearLineInfo() {
 	currentLine = 0;
 	operationsPerLine = 0;
 	indx = 0;
 }
 
+/* Initialize a chunk to hold bytecode. */
 void initChunk(Chunk* chunk, ValueArray* constants) {
 	chunk->count = 0;
 	chunk->capacity = 0;
@@ -21,6 +24,7 @@ void initChunk(Chunk* chunk, ValueArray* constants) {
 	chunk->constants = constants;
 }
 
+/* Free chunk containing bytecode. */
 void freeChunk(Chunk* chunk) {
 	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
 	FREE_ARRAY(int, chunk->codeArr, chunk->capacity);
@@ -29,6 +33,7 @@ void freeChunk(Chunk* chunk) {
 	initChunk(chunk, chunk->constants);
 }
 
+/* For REPL persistence. Free's the chunk with an error but preserves the stored value array. That way values declared before the error are preserved. */
 void freeChunkButNotValueArray(Chunk* chunk) {
 	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
 	FREE_ARRAY(int, chunk->codeArr, chunk->capacity);
@@ -40,6 +45,7 @@ void freeChunkButNotValueArray(Chunk* chunk) {
 	chunk->codeArr = NULL;
 }
 
+/* Write a byte to a chunk. */
 void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	if(chunk->capacity < chunk->count + 1) {
 		int oldCapacity = chunk->capacity;
@@ -64,6 +70,7 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	chunk->count++;
 }
 
+/* Add a 'Value' constant to the constant array 'ValueArray'. */
 int addConstant(Chunk* chunk, Value value, bool isConst) {
 	value.isConst = isConst;
 	push(value);
@@ -72,7 +79,7 @@ int addConstant(Chunk* chunk, Value value, bool isConst) {
 	return chunk->constants->count - 1;
 }
 
-
+/* Combination of the addConstant() and writeChunk() functions. */
 void writeConstant(Chunk* chunk, Value value, int line) {
 	int constantIndex = addConstant(chunk, value, false);
 	
@@ -87,6 +94,7 @@ void writeConstant(Chunk* chunk, Value value, int line) {
 	}
 }
 
+/* Returns the current line of execution for debug and error handling. */
 int getLine(Chunk* chunk, int instructionIndex) {
 	int sum = 0;
 	int i;

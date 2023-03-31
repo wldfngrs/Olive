@@ -6,6 +6,7 @@
 
 static int interpolationCount = 0;
 static bool inInterpolation = false;
+static bool interpolatedString = false;
 static bool jsi = false; // jsi -- justScannedInterpolation. Set when the scanner has scanned passed all the interpolation tokens in a given string.
 
 typedef struct {
@@ -73,6 +74,15 @@ static Token makeToken(TokenType type) {
 	return token;
 }
 
+static Token makeConcatToken(TokenType type) {
+	Token token;
+	token.type = type;
+	token.start = NULL;
+	token.length = 0;
+	token.line = scanner.line;
+	return token;
+}
+
 static Token errorToken(const char* message) {
 	Token token;
 	token.type = TOKEN_ERROR;
@@ -87,7 +97,7 @@ bool newLine = false;
 
 static void skipWhitespace() {
 	if (inInterpolation) return;
-	
+		
 	for(;;) {
 		char c = peek();
 		switch(c) {
@@ -209,6 +219,7 @@ static Token string() {
 	while(peek() != '"' && !isAtEnd()) {
 		if(peek() == '\n') scanner.line++;
 		if(peek() == '$' && peekNext() == '{') {
+			interpolatedString = true;
 			inInterpolation = true;
 			return interpolation();
 		}
@@ -221,15 +232,15 @@ static Token string() {
 	
 	advance();
 	
-	if(!interpolationCount) inInterpolation = false;
+	if(!interpolationCount) {
+		interpolatedString = false;
+		inInterpolation = false;
+	}
 	
 	return makeToken(TOKEN_STRING);
 }
 
 static Token identifier() {
-	if (jsi) {
-		return string();
-	}
 	while(isAlpha(peek()) || isDigit(peek())) advance();
 	
 	return makeToken(identifierType());
@@ -271,38 +282,38 @@ Token scanToken() {
 	if (isDigit(c)) return number();
 	
 	switch(c) {
+		case '\n': {
+			if (inInterpolation) {
+				inInterpolation = false;
+				return scanToken();
+			}
+		}
 		case ' ': {
-			if (inInterpolation) return identifier();
+			if (inInterpolation) return string();
 			break;
 		}
 		case '(': return makeToken(TOKEN_LEFT_PAREN);
 		case ')': return makeToken(TOKEN_RIGHT_PAREN);
-		case '{': 
-			if (inInterpolation) {
+		case '{': {
+			if (interpolatedString) {
+				inInterpolation = false;
 				interpolationCount++;
-				//return scanToken();
-				Token concat;
-				concat.start = NULL;
-				concat.type = TOKEN_CONCAT;
-				concat.length = 0;
-				concat.line = scanner.line;
-				return concat;
+				return makeConcatToken(TOKEN_CONCAT);
 			}
 			
 			return makeToken(TOKEN_LEFT_BRACE);
-		case '}': 
-			if (inInterpolation) {
+		}
+		
+		case '}': { 
+			if (interpolatedString) {
+				inInterpolation = true;
 				interpolationCount--;
-				if (interpolationCount == 0) jsi = true;
-				Token concat;
-				concat.start == NULL;
-				concat.type = TOKEN_CONCAT;
-				concat.length = 0;
-				concat.line = scanner.line;
-				return concat;
+				return makeConcatToken(TOKEN_CONCAT);
 			}
 			
 			return makeToken(TOKEN_RIGHT_BRACE);
+		}
+		
 		case ';': return makeToken(TOKEN_SEMICOLON);
 		case ',': return makeToken(TOKEN_COMMA);
 		case '.': return makeToken(TOKEN_DOT);
@@ -310,6 +321,7 @@ Token scanToken() {
 		case '+': return makeToken(TOKEN_PLUS);
 		case '/': return makeToken(TOKEN_SLASH);
 		case '*': return makeToken(TOKEN_STAR);
+		case '%': return makeToken(TOKEN_MOD);
 		case '!':
 			return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
 		case '=':

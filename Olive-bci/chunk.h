@@ -4,12 +4,13 @@
 #include "common.h"
 #include "value.h"
 
-// Line info
+/* Line info cleared by clearLineInfo() function at parsing error. */
 static int currentLine = 0;
 static int operationsPerLine = 0;
 static int indx = 0;
 static int temp;
 
+/* Bytecode instructions-set. */
 typedef enum {
 	OP_CONSTANT_LONG,
 	OP_CONSTANT,
@@ -41,6 +42,7 @@ typedef enum {
 	OP_SUBTRACT,
 	OP_MULTIPLY,
 	OP_DIVIDE,
+	OP_MOD,
 	OP_NOT,	
 	OP_NEGATE,
 	OP_PRINT,
@@ -62,6 +64,7 @@ typedef enum {
 	OP_METHOD
 } OpCode;
 
+/* A Chunk type to hold the bytecode instructions. A dynamic array with the ValueArray included in it's definition. */
 typedef struct {
 	int count;
 	int capacity;

@@ -1,3 +1,26 @@
-var name = "Tea";
-var age = 8;
-print "${name} is ${age + age} years old.";
+class base_class {
+  init(info) {
+    print info;
+  }
+  
+  print_info() {
+  	print "Base class method.";
+  }
+}
+
+class derived_class : base_class {
+  init(info) {
+    print info;
+  }
+  
+  print_info() {
+    base.print_info();
+    print "Derived class method.";
+  }
+}
+
+var a = base_class("I'm the based class.");
+a.print_info();
+
+var b = derived_class("I'm the derived class.");
+b.print_info();

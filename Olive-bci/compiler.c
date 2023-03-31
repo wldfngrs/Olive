@@ -1,3 +1,5 @@
+/* TO CONTRIBUTORS: Note that the function calls are recursive in nature so a function description preceeding a function would mostly encompass it's instructions and that of it's sub-calls. */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,10 +15,17 @@
 #include "debug.h"
 #endif
 
-bool scannedPastNewLine = false;
-int breakGlobal = 0; // 0 if break not executed.
-ValueArray constants;
+bool scannedPastNewLine = false; /* handling new lines as an end-of-scope mechanism in one-lined if, for, while, case (in switch) statements. */
 
+int breakGlobal = 0; /* if a break statement has not been parsed. */
+ValueArray constants; /* Value array to hold all values during parsing. This ValueArray is shared by all function chunks during execution. */
+
+/* Parser type. 
+	'current' -> the currently *parsing* token.
+	'previous' -> the just *scanned* token.
+	'hadError' -> whether or not there was a parsing error.
+	'panicMode' -> whether or not the compiler is in panic mode (fatal parsing error).
+*/
 typedef struct {
 	Token current;
 	Token previous;
@@ -24,6 +33,7 @@ typedef struct {
 	bool panicMode;
 } Parser;
 
+/* Precedence of operations for the Pratt Parser implementation. */
 typedef enum {
 	PREC_NONE,
 	PREC_ASSIGNMENT,
@@ -40,14 +50,26 @@ typedef enum {
 	PREC_PRIMARY
 } Precedence;
 
+/* Function pointer to the different possible functions to be called for each token during parsing. */
 typedef void (*ParseFn)(bool canAssign);
 
+/* ParseRule type. 
+	'prefix' -> points to function to call if current token is found in prefix position. 
+	'infix' -> points to function to call if current token is found in infix position. 
+	'precedence' (See Precedence enum) -> the precedence of the current token.
+*/
 typedef struct {
 	ParseFn prefix;
 	ParseFn infix;
 	Precedence precedence;
 } ParseRule;
 
+/* Local type to represent local variables. 
+	'name' -> token to represent name of local variable. 
+	'depth' -> depth of local variable. That is "how many left-braces in".
+	'isConst' -> whether or not local variable is a constant.
+	'isCaptured' -> whether or not local variable has been captured. Read on 'Upvalues and capturing upvalues'.
+*/
 typedef struct {
 	Token name;
 	int depth;
@@ -55,11 +77,21 @@ typedef struct {
 	bool isCaptured;
 } Local;
 
+/* Upvalue type.
+	'index' -> upvalue variable index in the upvalue array.
+	'isLocal' -> whether or not upvalue is a local variable or global.
+*/
 typedef struct {
 	uint8_t index;
 	bool isLocal;
 } Upvalue;
 
+/* Types of functions during execution. 
+	'TYPE_FUNCTION' -> user-defined functions.
+	'TYPE_INITIALIZER' -> default class 'init()' constructor functions.
+	'TYPE_METHOD' -> user-defined methods (functions tied to classes).
+	'TYPE_SCRIPT' -> default function at start of parsing.
+*/
 typedef enum {
 	TYPE_FUNCTION,
 	TYPE_INITIALIZER,
@@ -67,6 +99,14 @@ typedef enum {
 	TYPE_SCRIPT,
 } FunctionType;
 
+/* Compiler struct
+	'enclosing' -> points to compiler holding the compiling chunk before current compiler. Every function call gets a new compiler instance so this links them. Used primarily with function calls.
+	'function' -> points to an instance of 'ObjFunction' holding the chunk being executed.
+	'type' -> the type of function being executed. (See FunctionType enum)
+	'locals' -> array of local variables to the current compiler.
+	'upvalues' -> array of upvalue variables to the current compiler.
+	'scopeDepth' -> (See Local struct) the depth of scope or the result of (left_braces_count - right_braces_count)
+*/
 struct Compiler {
 	struct Compiler* enclosing;
 	ObjFunction* function;
@@ -78,11 +118,45 @@ struct Compiler {
 	int scopeDepth;
 };
 
+/* ClassCompiler struct
+	'enclosing' -> for nested classes or classes defined within classes
+	'name' -> token to represent name of class.
+	'hasBaseClass' -> whether or not current class derives from any class
+*/
 typedef struct ClassCompiler {
 	struct ClassCompiler* enclosing;
 	Token name;
 	bool hasBaseClass;
 } ClassCompiler;
+
+/* ClassMethodsIndex (CMI) struct. Dynamic array*/
+typedef struct {
+	int count;
+	int capacity;
+	int* index;
+} CMI;
+
+/* grow the CMI index array, hence the 'dynamic'. */
+static void growCMI(CMI* cmi) {
+	int oldCapacity = cmi->capacity;
+	cmi->capacity = GROW_CAPACITY(oldCapacity);
+	cmi->index = GROW_ARRAY(int, cmi->index, oldCapacity, cmi->capacity);
+}
+
+/* free the CMI index array */
+static void freeCMI(CMI* cmi) {
+	FREE_ARRAY(int, cmi->index, cmi->capacity);
+}
+
+/* Initialize the CMI dynamic array */
+static void initCMI(CMI* cmi) {
+	cmi->count = 0;
+	cmi->capacity = 0;
+	cmi->index = 0;
+	growCMI(cmi);
+}
+
+CMI cmi;
 
 typedef struct Compiler Compiler;
 
@@ -90,22 +164,26 @@ Parser parser;
 
 ClassCompiler* currentClass = NULL;
 
-Compiler* current = NULL; // page 394. modify for "principled engineers"
+Compiler* current = NULL; // page 394.
 
 Chunk* compilingChunk;
 
+/* return the current compiling chunk to emit bytecode to*/
 static Chunk* currentChunk() {
 	return &current->function->chunk;
 }
 
+/* helper variable for trimming certain strings*/
 char returnString[256];
 
+/* trim a char array 'string', by 'trimLength'. */
 static char* trim (const char* string, int trimLength) {
 	memset(returnString, 0, 256);
 	strncpy(returnString, string, trimLength);
 	return returnString;
 }
 
+/* print error message. */
 static void errorAt(Token* token, const char* message) {
 	if (parser.panicMode) return;
 	parser.panicMode = true;
@@ -124,14 +202,17 @@ static void errorAt(Token* token, const char* message) {
 	parser.hadError = true;
 }
 
+/* call errorAt() and print error message at previous token. */
 static void error(const char* message) {
 	errorAt(&parser.previous, message);
 }
 
+/* call errorAt() and print error message at current token. */
 static void errorAtCurrent(const char* message) {
 	errorAt(&parser.current, message);
 }
 
+/* scan the next token */
 static void advance() {
 	Token temp = parser.previous;
 	parser.previous = parser.current;
@@ -156,30 +237,17 @@ static void advance() {
 	}
 }
 
+/* consume tokens and print error message if the type of current token is not 'type'. */
 static void consume(TokenType type, const char* message) {
 	if (parser.current.type == type) {
 		advance();
 		return;
 	}
-	
-	/*if (type == TOKEN_SEMICOLON) {
-		fprintf(stderr, "[line %d] Error at end: Expect ';' after variable declaration\n", parser.current.line - 1);
-		parser.hadError = true;
-		return;
-	}*/
 		
 	errorAtCurrent(message);
 }
 
-/*static void consumeIfCount(TokenType type, int* count) {	
-	if (parser.current.type == type) {
-		advance();
-		(*count)++;
-	} else {
-		return;
-	}
-}*/
-
+/* same as consume() but for optional tokens. No error message if the current token is not 'type'. */
 static void consumeIf(TokenType type) {
 	if (parser.current.type == type) {
 		advance();
@@ -187,25 +255,24 @@ static void consumeIf(TokenType type) {
 	}
 }
 
+/* check if current token is equal to 'type'. */
 static bool check(TokenType type) {
 	return parser.current.type == type;
 }
 
+/* check if current token is equal to 'type' */
 static bool match(TokenType type) {
 	if (!check(type)) return false;
 	advance();
 	return true;
 }
 
+/* emit 'byte' to the current compiling chunk. */
 static void emitByte(uint8_t byte) {
 	writeChunk(currentChunk(), byte, parser.previous.line);
 }
-/*
-static void emitBytes(uint8_t byte1, uint8_t byte2) {
-	emitByte(byte1);
-	emitByte(byte2);
-}*/
 
+/* emit bytecode for loop instruction. */
 static void emitLoop(int loopStart) {
 	emitByte(OP_LOOP);
 	
@@ -216,6 +283,7 @@ static void emitLoop(int loopStart) {
 	emitByte(offset & 0xff);
 }
 
+/* emit bytecode for continue instruction. */
 static void emitContinue(int* continueStart, uint8_t instruction) {
 	emitByte(instruction);
 	emitByte(0xff);
@@ -223,6 +291,7 @@ static void emitContinue(int* continueStart, uint8_t instruction) {
 	*continueStart = currentChunk()->count - 2;
 }
 
+/* emit bytecode for jump instruction. */
 static int emitJump(uint8_t instruction) {
 	emitByte(instruction);
 	emitByte(0xff);
@@ -230,16 +299,12 @@ static int emitJump(uint8_t instruction) {
 	return currentChunk()->count - 2;
 }
 
-/*
-static uint8_t makeConstant(Value value) {
-	int constant = addConstant(currentChunk(), value);
-	return (uint8_t)constant;
-}*/
-
+/* add 'value' to the current compiling chunk's value array. */
 static void emitConstant(Value value) {
 	writeConstant(currentChunk(), value, parser.previous.line);
 }
 
+/* When the jump instructions are first emitted, the actual distance for the intended jump is not certain. This function is called at the point where that "uncertainly distanced" jump is meant to be completed. It "patches" the instruction by correcting the jump distance. */
 static void patchJump(int offset) {
 	// -2 to adjust for the bytecode for the jump offset itself.
 	int jump = currentChunk()->count - offset - 2;
@@ -252,6 +317,7 @@ static void patchJump(int offset) {
 	currentChunk()->code[offset + 1] = jump & 0xff;
 }
 
+/* initialize a new Compiler instance. */
 static void initCompiler(Compiler* compiler, FunctionType type, ValueArray* constants) {
 	compiler->enclosing = current;
 	compiler->function = NULL;
@@ -278,6 +344,7 @@ static void initCompiler(Compiler* compiler, FunctionType type, ValueArray* cons
 	clearLineInfo();
 }
 
+/* Variation of emitByte(). Emit a byte and the index of a 'Value' in the value array to the curren compiling chunk. */
 static void emitOpAndConstant(uint8_t byte, int constant) {
 	emitByte(byte);
 	if (constant < 256) {
@@ -289,6 +356,7 @@ static void emitOpAndConstant(uint8_t byte, int constant) {
 	}
 }
 
+/* emit a return instruction to the current compiling chunk. */
 static void emitReturn() {
 	if (current->type == TYPE_INITIALIZER) {
 		emitOpAndConstant(OP_GET_LOCAL, 0);
@@ -299,7 +367,7 @@ static void emitReturn() {
 	emitByte(OP_RETURN);
 }
 
-
+/* post compiler routine. Switch current compiler to the current enclosing compiler and emit return instruction. */
 static ObjFunction* endCompiler() {
 	emitReturn();
 	ObjFunction* function = current->function;
@@ -315,10 +383,12 @@ static ObjFunction* endCompiler() {
 	return function;
 }
 
+/* On parsing a left brace token, increase the scopeDepth to represent a new block. */
 static void beginScope() {
 	current->scopeDepth++;
 }
 
+/* On parsing a right brace token, decrease the scopeDepth and close any captured upvalues to end a block. */
 static void endScope() {
 	current->scopeDepth--;
 	int popCount = 0;
@@ -332,22 +402,25 @@ static void endScope() {
 		current->localCount--;
 		
 	}
-	//emitByte(OP_POPN);
-	//emitByte((uint8_t)popCount);
+	
 	emitOpAndConstant(OP_POPN, popCount);
 }
 
+/*foward declaration of functions. */
 static void expression();
 static void statement();
 static void declaration();
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 
-/* If the key is a new key, the value for the key on the table is set. If not, it just returns a boolean to signify a new key or not. (true == new key, false == old key)
+/* 	If the key is a new key, the value for the key on the table is set. If not, it just returns a boolean to signify a new key or not. (true == new key, false == old key)
 	For an old key, the the constness of 'value' has to be equal to the value returned at that index in the chunk's ValueArray. eg. if 'value' is 1 and it has a constness of 'true', the value returned at index 1 in the ValueArray has to be of constness 'true' else error.
-	*/
+*/
 
-static int identifierConstantDeclaration(Token* name, bool isConst) {
+/* Add the current token to the 'globalConstantIndex' hash map and return an error if it's an attempt at double initialization. Key is the token as an ObjString, Value is the token's index in the value array.
+   Read above for more on the implementation.
+*/
+static int identifierConstantDeclaration(Token* name, bool isConst, bool isMethod) {
 	ObjString* objString = allocateString(false, name->start, name->length);
 
 	if (tableSetGlobal(&vm.globalConstantIndex, &OBJ_KEY(objString), NUMBER_VAL(currentChunk()->constants->count))) {
@@ -360,13 +433,18 @@ static int identifierConstantDeclaration(Token* name, bool isConst) {
 		}
 		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false
 		&&
-		!REPLmode) {
+		!REPLmode
+		&&
+		currentClass == NULL
+		&&
+		!isMethod) {
 			error("Attempt to re-declare variable type qualifier.");
 		}
 		return (int)AS_NUMBER(constantIndex);
 	}
 }
 
+/* Return the Value ('constantIndex') of the Key ('name' as an ObjString). */
 static int identifierConstantSetGet(Token* name) {
 	ObjString* objString = allocateString(false, name->start, name->length);
 	Value constantIndex;
@@ -377,11 +455,13 @@ static int identifierConstantSetGet(Token* name) {
 	return (int)AS_NUMBER(constantIndex);
 }
 
+/* check if two identifier tokens are equal. */
 static bool identifiersEqual(Token* a, Token* b) {
 	if (a->length != b->length) return false;
 	return memcmp(a->start, b->start, a->length) == 0;
 }
 
+/* find the nearest defined local variable with the name 'name' and return it's index in the 'locals' array. */
 static int resolveLocal(Compiler* compiler, Token* name) {
 	for (int i = compiler->localCount - 1; i >= 0; i--) {
 		Local* local = &compiler->locals[i];
@@ -396,6 +476,7 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 	return -1; // couldn't resolve name to any declared local variables
 }
 
+/* add an upvalue to the upvalue array */
 static int addUpvalue(Compiler* compiler, uint8_t index, bool isLocal) {
 	int upvalueCount = compiler->function->upvalueCount;
 	
@@ -416,6 +497,7 @@ static int addUpvalue(Compiler* compiler, uint8_t index, bool isLocal) {
 	return compiler->function->upvalueCount++;
 }
 
+/* find the nearest defined upvalue with the name 'name' and return it's index in the 'upvalues' array. */
 static int resolveUpvalue(Compiler* compiler, Token* name) {
 	if (compiler->enclosing == NULL) return -1;
 	
@@ -433,6 +515,7 @@ static int resolveUpvalue(Compiler* compiler, Token* name) {
 	return -1;
 }
 
+/* add a local variable with name 'name' to the 'locals' array. 'isConst' is for whether or not the local variable is const*/
 static void addLocal(Token name, bool isConst) {
 	if (current->localCount == SCOPE_COUNT) {
 		error("Too many local variables in function.");
@@ -446,6 +529,7 @@ static void addLocal(Token name, bool isConst) {
 	local->isCaptured = false;
 }
 
+/* declara a variable. Find the nearest unused spot in the local array and if no other local variable within the same scope is defined as 'name' then call addLocal() and add this new local variable to the 'locals' array. */
 static void declareVariable(bool isConst) {
 	// Global variables are implicitly declared.
 	if (current->scopeDepth == 0) return;
@@ -470,20 +554,23 @@ static void declareVariable(bool isConst) {
 	addLocal(*name, isConst);
 }
 
+/* parse an identifer name and add it to either the 'locals' array (if it's a local variable) or 'globalConstantIndex 'hash map(if it's a global). */
 static int parseVariable(const char* errorMessage, bool isConst) {
 	consume(TOKEN_IDENTIFIER, errorMessage);
 	
 	declareVariable(isConst);
 	if (current->scopeDepth > 0) return 0;
 	
-	return identifierConstantDeclaration(&parser.previous, isConst);
+	return identifierConstantDeclaration(&parser.previous, isConst, false);
 }
 
+/* mark a variable as initialized. */
 static void markInitialized() {
 	if (current->scopeDepth == 0) return;
 	current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
+/* mark a variable as initialized and emit instructions to define a variable to the compiling chunk. */
 static void defineVariable(int global) {
 	if (current->scopeDepth > 0) {
 		markInitialized();
@@ -493,6 +580,7 @@ static void defineVariable(int global) {
 	emitOpAndConstant(OP_DEFINE_GLOBAL, global);
 }
 
+/* parse the argument list of a function. */
 static uint8_t argumentList() {
 	uint8_t argCount = 0;
 	if (!check(TOKEN_RIGHT_PAREN)) {
@@ -511,6 +599,7 @@ static uint8_t argumentList() {
 	return argCount;
 }
 
+/* emit instructions for 'and'(&) operation. */
 static void and_(bool canAssign) {
 	int endJump = emitJump(OP_JUMP_IF_FALSE);
 	
@@ -520,6 +609,7 @@ static void and_(bool canAssign) {
 	patchJump(endJump);
 }
 
+/* emit instructions for ternary (?:) operations. */
 static void ternary(bool canAssign) {
 	// Parse then branch
 	parsePrecedence(PREC_TERNARY);
@@ -531,6 +621,7 @@ static void ternary(bool canAssign) {
 	emitByte(OP_TERNARY);	
 }
 
+/* emit instructions for binary (+,*,-,...) instructions. */
 static void binary(bool canAssign) {
 	TokenType operatorType = parser.previous.type;
 	
@@ -550,16 +641,19 @@ static void binary(bool canAssign) {
 		case TOKEN_MINUS: emitByte(OP_SUBTRACT); break;
 		case TOKEN_STAR: emitByte(OP_MULTIPLY); break;
 		case TOKEN_SLASH: emitByte(OP_DIVIDE); break;
+		case TOKEN_MOD: emitByte(OP_MOD); break;
 		default:
 			return;
 	}
 }
 
+/* emit instruction for function calls */
 static void call(bool canAssign) {
 	uint8_t argCount = argumentList();
 	emitOpAndConstant(OP_CALL, argCount);
 }
 
+/* emit instruction for true, false or null */
 static void literal(bool canAssign) {
 	switch(parser.previous.type) {
 		case TOKEN_FALSE: emitByte(OP_FALSE); break;
@@ -570,6 +664,7 @@ static void literal(bool canAssign) {
 	}
 }
 
+/* emit instruction for accessing class methods or fields. */
 static void dot(bool canAssign) {
 	consume(TOKEN_IDENTIFIER, "Expect property name after '.'");
 	int name = addConstant(currentChunk(), OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length)), false);
@@ -586,17 +681,19 @@ static void dot(bool canAssign) {
 	}
 }
 
-
+/* parse and emit instructions for grouped expressions '()'*/
 static void grouping(bool canAssign) {
 	expression();
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
+/* emit instructions for numbers */
 static void number(bool canAssign) {
 	double value = strtod(parser.previous.start, NULL);
 	emitConstant(NUMBER_VAL(value));
 }
 
+/* emit instruction for 'or'(|) instruction. */
 static void or_(bool canAssign) {
 	int elseJump = emitJump(OP_JUMP_IF_FALSE);
 	int endJump = emitJump(OP_JUMP);
@@ -608,6 +705,7 @@ static void or_(bool canAssign) {
 	patchJump(endJump);
 }
 
+/* emit instruction for strings. */
 static void string(bool canAssign) {
 	if (*(parser.previous.start) == '"') {
 		emitConstant(OBJ_VAL(allocateString(false, parser.previous.start + 1, parser.previous.length - 2)));
@@ -616,6 +714,7 @@ static void string(bool canAssign) {
 	}
 }
 
+/* emit instructions to get already defined identifiers. */
 static void namedVariable(Token name, bool canAssign) {
 	uint8_t getOp, setOp;
 	int arg = resolveLocal(current, &name);
@@ -646,15 +745,21 @@ static void namedVariable(Token name, bool canAssign) {
 	}
 }
 
+/* emit instructions to get already defined identifiers. */
 static void variable(bool canAssign) {
 	namedVariable(parser.previous, canAssign);
 }
 
+/* emit instructions to handle interpolated strings. */
 static void interpolation(bool canAssign) {
-	emitConstant(OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length - 1)));
+	if (*(parser.previous.start) == '"') {
+		emitConstant(OBJ_VAL(allocateString(false, parser.previous.start + 1, parser.previous.length - 1)));
+	} else if (*(parser.previous.start) == ' ') {
+		emitConstant(OBJ_VAL(allocateString(false, parser.previous.start, parser.previous.length)));
+	}
 }
 
-
+/* generate a synthetic token for 'this'. */
 static Token syntheticToken(const char* text) {
 	Token token;
 	token.start = text;
@@ -662,6 +767,7 @@ static Token syntheticToken(const char* text) {
 	return token;
 }
 
+/* emit instructions for accessing a base class' methods. */
 static void base_(bool canAssign) {
 	if (currentClass == NULL) {
 		error("Attempt to use 'base' token outside of a class");
@@ -671,7 +777,7 @@ static void base_(bool canAssign) {
 	
 	consume(TOKEN_DOT, "Expect '.' after 'base' token.");
 	consume(TOKEN_IDENTIFIER, "Expect 'base class' method name.");
-	uint8_t name = identifierConstantDeclaration(&parser.previous, true);
+	uint8_t name = identifierConstantDeclaration(&parser.previous, true, false);
 	
 	namedVariable(syntheticToken("this"), false);
 	if (match(TOKEN_LEFT_PAREN)) {
@@ -685,6 +791,7 @@ static void base_(bool canAssign) {
 	}
 }
 
+/* emit instructions for accessing the current class' fields' */
 static void this_(bool canAssign) {
 	if (currentClass == NULL) {
 		error("Attempt to use 'this' token outside of a class scope.");
@@ -694,6 +801,7 @@ static void this_(bool canAssign) {
 	variable(false);
 }
 
+/* emit instructions for unary operations like '-'. */
 static void unary(bool canAssign) {
 	TokenType operatorType = parser.previous.type;
 	
@@ -707,30 +815,37 @@ static void unary(bool canAssign) {
 	}
 }
 
+/* error message for case token parsed outside switch statment*/
 static void caseError(bool canAssign) {
 	error("'case' token not within a 'switch' statement.");
 }
 
+/* error message for default token parsed outside switch statment*/
 static void defaultError(bool canAssign) {
 	error("'default' token not within a 'switch' statement.");
 }
 
+/* error message for break token parsed outside a loop or switch statement*/
 static void breakError(bool canAssign) {
 	error("'break' token not within loop or switch statement.");
 }
 
+/* error message for continue token parsed outside loop statement*/
 static void continueError(bool canAssign) {
 	error("'continue' token not within loop statement.");
 }
 
+/* error message for stand alone right parenthesis */
 static void parenError(bool canAssign) {
 	error("Statement expected before ')' token.");
 }
 
+/* error message for stand alone left brace. */
 static void braceError(bool canAssign) {
 	error("'}' without corresponding '{' token.");
 }
 
+/* array of rules for each token with functions to call whenever each token is found either as an infix or a prefix and the token's precedence. For instance 'TOKEN_PLUS' is not expected in the prefix position, hence it's prefix function is NULL. It's infix however is a call to binary() and it's precedence is PREC_TERM. */
 ParseRule rules[] = {
 	[TOKEN_LEFT_PAREN]= {grouping,call,PREC_CALL},
 	[TOKEN_RIGHT_PAREN]= {parenError,NULL,PREC_NONE},
@@ -782,6 +897,7 @@ ParseRule rules[] = {
 	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION}
 };
 
+/* Read Pratt's Parsers. Function to parser input based on their given precedence (See 'rules' array). */
 static void parsePrecedence(Precedence precedence) {
 	advance();
 	ParseFn prefixRule = getRule(parser.previous.type)->prefix;
@@ -804,26 +920,31 @@ static void parsePrecedence(Precedence precedence) {
 	}
 }
 
+/* get the parsing rule for the given token type (See 'rules' array). */
 static ParseRule* getRule(TokenType type) {
 	return &rules[type];
 }
 
+/* parse an expression */
 static void expression() {
 	parsePrecedence(PREC_ASSIGNMENT);
 }
 
+/* ignore any remaining tokens the come after 'break' token until newline token. */
 static void continueParsingOnBreak1() {
 	while (!scannedPastNewLine) {
 		advance();
 	}
 }
 
+/* ignore any remaining tokens the come after 'break' token until right brace or end of file token. */
 static void continueParsingOnBreak2() {
 	while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
 		advance();
 	}
 }
 
+/* parse and emit instructions block of expressions */
 static void block(controlFlow* controls) {
 	while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
 		declaration(controls);
@@ -835,6 +956,7 @@ static void block(controlFlow* controls) {
 	consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
+/* parse and emit instructions for functions */
 static void function(FunctionType type) {
 	Compiler compiler;
 	initCompiler(&compiler, type, &constants);
@@ -869,9 +991,11 @@ static void function(FunctionType type) {
 	}
 }
 
+/* parse and emit instructions for a class method. */
 static void method() {
 	consume(TOKEN_IDENTIFIER, "Expect method name.");
-	int constant = identifierConstantDeclaration(&parser.previous, true);
+	int constant = identifierConstantDeclaration(&parser.previous, true, true);
+	cmi.index[cmi.count++] = constant;
 	
 	FunctionType type = TYPE_METHOD;
 	if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0) {
@@ -882,16 +1006,20 @@ static void method() {
 	emitOpAndConstant(OP_METHOD, constant);
 }
 
+/* parse and emit instructions for a class. */
 static void classDeclaration() {
+	ClassCompiler classCompiler;
+	currentClass = &classCompiler;
+	
+	initCMI(&cmi);
 	consume(TOKEN_IDENTIFIER, "Expect class name.");
 	Token className = parser.previous;
-	uint8_t nameConstant = identifierConstantDeclaration(&parser.previous, true);
+	uint8_t nameConstant = identifierConstantDeclaration(&parser.previous, true, false);
 	declareVariable(true);
 	
 	emitOpAndConstant(OP_CLASS, nameConstant);
 	defineVariable(nameConstant);
 	
-	ClassCompiler classCompiler;
 	classCompiler.name = parser.previous;
 	classCompiler.hasBaseClass = false;
 	classCompiler.enclosing = currentClass;
@@ -926,9 +1054,15 @@ static void classDeclaration() {
 		endScope();
 	}
 	
+	for (int i = 0; i < cmi.count; i++) {
+		currentChunk()->constants->values[cmi.index[i]].isConst = false;	
+	}
+	freeCMI(&cmi);
+	
 	currentClass = currentClass->enclosing;
 }
 
+/* add the function name to the 'globalConstantIndex' hash map. */
 static void functionDeclaration() {
 	uint8_t global = parseVariable("Expect function name.", true);
 	markInitialized();
@@ -936,6 +1070,7 @@ static void functionDeclaration() {
 	defineVariable(global);
 }
 
+/* emit instructions to delete an attribute from a class' instance */
 static void deleteAttribute() {
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'del_attr' token.");
 	uint8_t argCount = 0;
@@ -949,6 +1084,7 @@ static void deleteAttribute() {
 	emitByte(OP_DELATTR);
 }
 
+/* emit instructions to declare and define a variable. */
 static void varDeclaration(bool isConst) {
 	int global = parseVariable("Expect variable name.", isConst);
 	
@@ -962,12 +1098,14 @@ static void varDeclaration(bool isConst) {
 	defineVariable(global);
 }
 
+/* emit instructions for expressions. */
 static void expressionStatement() {
 	expression();
 	consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
 	emitByte(OP_POP);
 }
 
+/* emit instruction for a break statement. */
 static void breakStatement(controlFlow* controls) {
 	if (controls->capacity < controls->count + 1) {
 		growControlFlow(controls);
@@ -977,7 +1115,8 @@ static void breakStatement(controlFlow* controls) {
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'break' statement.");
 }
 
-int switchLevel = 0;
+int switchLevel = 0; // number of nestings of switch statments
+/* emit instruction for continue statement. */
 static void continueStatement(controlFlow* controls) {
 	if (controls->cpCapacity < controls->cpCount + 1) {
 		growCpControlFlow(controls);
@@ -986,7 +1125,10 @@ static void continueStatement(controlFlow* controls) {
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'continue' statement.");
 }
 
-int loopLevel = 0;
+/* In the code for loop and switch statments (following this comment), you'd notice a variable controlFlow. Break or continue statements could happen anywhere within a loop or switch statment (cases for example) and this variable holds the break or continue points to be resolved or 'patched' (recall patchJump()?) later on at the appropriate time (Mostly at the end of the function parsing the respective statement.). */ 
+
+int loopLevel = 0; // number of nestings of loop statements
+/* emit instructions for for statments. */
 static void forStatement() {
 	beginScope();
 	
@@ -1088,7 +1230,7 @@ static void forStatement() {
 	loopLevel--;
 }
 
-
+/* emit instructions for if statement. */
 static void ifStatement(controlFlow* controls) {
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
 	expression();
@@ -1134,6 +1276,7 @@ static void ifStatement(controlFlow* controls) {
 	patchJump(elseJump);
 }
 
+/* emit instruction for switchStatements */
 static void switchStatement(controlFlow* prevControl) {
 	switchLevel++;
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch' token.");
@@ -1221,12 +1364,14 @@ static void switchStatement(controlFlow* prevControl) {
 	switchLevel--;
 }
 
+/* emit instruction for print statment. */
 static void printStatement() {
 	expression();
 	consume(TOKEN_SEMICOLON, "Expect ';' after value.");
 	emitByte(OP_PRINT);
 }
 
+/* emit instruction for return statement. */
 static void returnStatement() {
 	if (current->type == TYPE_SCRIPT) {
 		error("'return' token not within a function statement.");
@@ -1245,6 +1390,7 @@ static void returnStatement() {
 	}
 }
 
+/* emit instruction for while statment */
 static void whileStatement() {
 	int breakJump = 0;
 	
@@ -1292,6 +1438,7 @@ static void whileStatement() {
 	loopLevel--;
 }
 
+/* In the situation of an error, keep scanning until one of these tokens. Hence 'synchronize'. */
 static void synchronize() {
 	parser.panicMode = false;
 	
@@ -1317,7 +1464,7 @@ static void synchronize() {
 	}
 }
 
-// The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
+/* The base idea of some statements taking a controlFlow argument and others not: loop and switch statements have break statements defined within them to be exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within. Switch statements as well inherit the continue statements of whatever loop statements they are parsed within.*/
 
 static void declaration(controlFlow* controls) {
 	if (match(TOKEN_CLASS)) {
@@ -1335,11 +1482,12 @@ static void declaration(controlFlow* controls) {
 	if (parser.panicMode) synchronize();
 }
 
+/* emit instructions for a const variable. */
 static void constDeclaration() {
 	varDeclaration(true);
 }
 
-// The base idea: loop and switch statements have any break statements defined and exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within.
+/* The base idea of some statements taking a controlFlow argument and others not: loop and switch statements have break statements defined within them to be exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within. Switch statements as well inherit the continue statements of whatever loop statements they are parsed within.*/
 
 static void statement(controlFlow* controls) {
 	if(match(TOKEN_PRINT)) {
@@ -1377,6 +1525,7 @@ static void statement(controlFlow* controls) {
 	}
 }
 
+/* add native function names to the 'globalConstantIndex' hash map at the start of compilation so they can identified later during parsing. */ 
 static void addNativeIdentifiers() {
 	for (int i = 0; i < vm.nativeIdentifierCount; i++) {
 		ObjString* key = allocateString(false, vm.nativeIdentifiers[i], strlen(vm.nativeIdentifiers[i]));
@@ -1385,7 +1534,7 @@ static void addNativeIdentifiers() {
 		tableSet(&vm.globalConstantIndex, &OBJ_KEY(key), NUMBER_VAL(index));
 	}
 }
-
+ /* compile a source file. */
 ObjFunction* compile(const char* source) {
 	initValueArray(&constants);
 	
@@ -1407,6 +1556,7 @@ ObjFunction* compile(const char* source) {
 	return parser.hadError ? NULL : function;
 }
 
+/* compile REPL text. */
 ObjFunction* compileREPL(const char* source) {
 	static ValueArray constants;
 	if (!withinREPL) initValueArray(&constants);
