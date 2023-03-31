@@ -1,26 +1,24 @@
-class base_class {
-  init(info) {
-    print info;
-  }
-  
-  print_info() {
-  	print "Base class method.";
-  }
+for (var a = 0; a < 10; a = a + 1) {
+	switch(a) {
+		case 1: {
+			print a;
+			continue;
+		}
+		
+		case 3: {
+			print 3;
+			continue;
+		}
+		
+		case 5: {
+			continue;
+		}
+		
+		default: {
+			print "default";
+		}
+	}
+	
+	if (a > 8) break;
+	print a; 
 }
-
-class derived_class : base_class {
-  init(info) {
-    print info;
-  }
-  
-  print_info() {
-    base.print_info();
-    print "Derived class method.";
-  }
-}
-
-var a = base_class("I'm the based class.");
-a.print_info();
-
-var b = derived_class("I'm the derived class.");
-b.print_info();
