@@ -303,5 +303,5 @@ And there you have it. A brief introduction to Olive's syntax and VM. And yes, t
 
   This is programming languages 101, I'm aware. I have a few ideas. I'd get on to it!
 
-That's about it. I'd include more and update the features list as I commit more improved Olive versions. Programming languages certainly are complex beasts but I've tried to extensively comment any complex parts of the code as well as descriptive function names. If it's still a miss, send me an email: wldfngrs@gmail.com. And if you'd like to lend a hand with development, you're welcome. Dive in.
+That's about it. I'd include more and update the features list as I commit more improved Olive versions. Programming languages certainly are complex beasts but I've tried to extensively comment any complex parts of the code as well as used descriptive function names. If it's still a miss, send me an email: wldfngrs@gmail.com. And if you'd like to lend a hand with development, you're welcome. Dive in.
 
