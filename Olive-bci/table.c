@@ -63,6 +63,9 @@ static Entry* findEntry(Entry* entries, int capacity, Key* key) {
 						if (AS_NUMBER(*keyAsValue) == AS_NUMBER(entry->key)) return entry;
 					case VAL_OBJ:
 						if (AS_STRING(*keyAsValue) == AS_STRING(entry->key)) return entry;
+					case VAL_NULL:
+						// check for errors
+						if (IS_NULL(entry->key)) return entry;
 						
 				}
 		}
@@ -182,8 +185,8 @@ ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t
 
 void tableRemoveWhite(Table* table) {
 	for (int i = 0; i <= table->capacity; i++) {
+		if (table->entries == NULL) return;
 		Entry* entry = &table->entries[i];
-		if (entry == NULL) return;
 		if (!IS_NULL(entry->key) && !((Obj*)(entry->key.as.obj))->isMarked) {
 			tableDelete(table, &entry->key);
 		}
@@ -192,8 +195,8 @@ void tableRemoveWhite(Table* table) {
 
 void markTable(Table* table) {
 	for (int i = 0; i <= table->capacity; i++) {
+		if (table->entries == NULL) return;
 		Entry* entry = &table->entries[i];
-		if (entry == NULL) return;
 		markObject((Obj*)AS_OBJ(entry->key));
 		markValue(entry->value);
 	}

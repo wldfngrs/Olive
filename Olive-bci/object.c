@@ -78,6 +78,8 @@ static uint32_t hashString(const char* key, int length) {
 		hash ^= key[i];
 		hash *= 16777619;
 	}
+	
+	return hash;
 }
 
 // does not own their copy of character array. Points back to source string but doesn't free source string
@@ -104,6 +106,21 @@ ObjString* allocateString(bool ownString, const char* chars, int length) {
 	pop(1);
 	
 	return string;
+}
+
+void resolveStringInterns(size_t offset) {
+	Obj* object = vm.objects;
+
+	/* Recall that Obj linked list of VM objects links backwards. i.e vm.objects points to the most recently added object and not the oldest added object. This function therfore starts checking from the most recently added object (and resolves it's chars if it's an OBJ_STRING) and stops right at the OBJ_NATIVE object. The OBJ_NATIVE object is one of the first objects to be added to the VM and preceeding it are the native functions and the init() constructor object. Those objects contain interned strings but do not need to be resolved as their references are not contained in the reallocated buffer */
+	
+	while (object->type != OBJ_NATIVE) {
+		if (object->type == OBJ_STRING) {
+			ObjString* string = (ObjString*)object;
+			/* point to the location of chars in the newly reallocated buffer*/
+			string->chars += offset;
+		}
+		object = object->next;
+	}
 }
 
 ObjUpvalue* newUpvalue(Value* slot) {

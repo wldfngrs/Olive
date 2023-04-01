@@ -52,9 +52,8 @@ typedef enum {
 extern VM vm;
 
 void initVM();
-void freeVM();
-InterpretResult interpret(const char* source);
-InterpretResult interpretREPL(const char* source);
+void freeVM(bool REPLmode);
+InterpretResult interpret(const char* source, size_t len, bool REPLmode, bool* withinREPL);
 void push(Value value);
 Value pop(uint8_t popCount);
 

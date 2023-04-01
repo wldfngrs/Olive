@@ -73,7 +73,7 @@ void initVM() {
 	vm.nextGC = 1024 * 1024;
 	
 	vm.grayCount = 0;
-	vm.grayCapacity - 0;
+	vm.grayCapacity = 0;
 	vm.grayStack = NULL;
 	
 	initTable(&vm.globals);
@@ -89,7 +89,7 @@ void initVM() {
 	defineNative("clock", clockNative);
 }
 
-void freeVM() {
+void freeVM(bool REPLmode) {
 	freeTable(&vm.globals);
 	freeTable(&vm.globalConstantIndex);
 	freeTable(&vm.strings);
@@ -288,12 +288,11 @@ static bool isFalsey(Value value) {
 	return IS_NULL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
-static bool isTruthy(Value value) {
+/*static bool isTruthy(Value value) {
 	return IS_NULL(value) || (IS_BOOL(value) && AS_BOOL(value));
-}
+}*/
 
 static void concatenate() {
-	//concatenation won't happen too often so I guess it's okay to let push and pop go crazy in here
 	ObjString* b = AS_STRING(peek(0));
 	ObjString* a = AS_STRING(peek(1));
 	
@@ -460,6 +459,8 @@ static InterpretResult run() {
 		printf("\n");
 		disassembleInstruction(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));
 #endif
+		Value* aPtr;
+		Value b;
 		uint8_t instruction;
 		switch(instruction = READ_BYTE()) {
 			case OP_CONSTANT: {
@@ -467,30 +468,38 @@ static InterpretResult run() {
 				push(constant);
 				break;
 			}
+			
 			case OP_CONSTANT_LONG: {
 				Value constant = READ_LONG_CONSTANT();
 				push(constant);
 				break;
 			}
+			
 			case OP_NULL: push(NULL_VAL); break;
+			
 			case OP_TRUE: push(BOOL_VAL(true)); break;
 			case OP_FALSE: push(BOOL_VAL(false)); break;
+			
 			case OP_POP: pop(1); break;
+			
 			case OP_POPN: {
 				uint8_t popCount = READ_BYTE();
 				pop(popCount);
 				break;
 			}
+			
 			case OP_GET_LOCAL: {
 				uint8_t slot = READ_BYTE();
 				push(frame->slots[slot]);
 				break;
 			}
+			
 			case OP_SET_LOCAL: {
 				uint8_t slot = READ_BYTE();
 				frame->slots[slot] = peek(0);
 				break;
 			}
+			
 			case OP_GET_GLOBAL: {
 				ObjString* name = READ_STRING();
 				Value value;
@@ -501,11 +510,14 @@ static InterpretResult run() {
 				push(value);
 				break;
 			}
-			case OP_DEFINE_GLOBAL:
+			
+			case OP_DEFINE_GLOBAL: {
 				ObjString* name = READ_STRING();
 				tableSet(&vm.globals, &OBJ_KEY(name), peek(0));
 				pop(1);
 				break;
+			}
+			
 			case OP_SET_GLOBAL:{
 				ObjString* name = READ_STRING();
 				if (tableSet(&vm.globals, &OBJ_KEY(name), peek(0))) {
@@ -586,12 +598,14 @@ static InterpretResult run() {
 				break;
 			}
 			
-			case OP_EQUAL:
-				Value b = pop(1);
-				Value* aPtr = vm.stackTop - 1;
+			case OP_EQUAL: {
+				b = pop(1);
+				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesEqual(*aPtr, b));
 				break;
-			case OP_SWITCH_EQUAL:
+			}
+			
+			case OP_SWITCH_EQUAL: {
 				aPtr = vm.stackTop - 1;
 				if (switchFallThrough) {
 					*aPtr = BOOL_VAL(true);
@@ -600,38 +614,52 @@ static InterpretResult run() {
 					*aPtr = BOOL_VAL(valuesEqual(*aPtr, *(aPtr - 1)));
 				}
 				break;
-			case OP_NOT_EQUAL:
+			}
+			
+			case OP_NOT_EQUAL: {
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesNotEqual(*aPtr, b));
 				break;
 			// Make these work for non-number types as well
-			case OP_GREATER:
+			}
+			
+			case OP_GREATER: {
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesGreater(*aPtr, b));
 				break;
-			case OP_GREATER_EQUAL:
+			}
+			
+			case OP_GREATER_EQUAL: {
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesGreaterEqual(*aPtr, b));
 				break;
-			case OP_LESS:
+			}
+			
+			case OP_LESS: {
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesLess(*aPtr, b));
 				break;
-			case OP_LESS_EQUAL:
+			}
+			
+			case OP_LESS_EQUAL: {
 				b = pop(1);
 				aPtr = vm.stackTop - 1;
 				*aPtr = BOOL_VAL(valuesLessEqual(*aPtr, b));
 				break;
-			case OP_TERNARY:
+			}
+			
+			case OP_TERNARY: {
 				b = pop(1);
 				Value a = pop(1);
 				Value* conditional = vm.stackTop - 1;
 				*conditional = AS_BOOL(*conditional) ? a : b;
 				break;
+			}
+			
 			case OP_ADD: {
 				if(IS_STRING(peek(0)) && IS_STRING(peek(1))) {
 					concatenate();
@@ -648,12 +676,16 @@ static InterpretResult run() {
 				break;
 			}
 			case OP_SUBTRACT: BINARY_OP(NUMBER_VAL, -); break;
+			
 			case OP_MULTIPLY: BINARY_OP(NUMBER_VAL, *); break;
+			
 			case OP_DIVIDE: BINARY_OP(NUMBER_VAL, /); break;
+			
 			case OP_MOD: MOD_OP(NUMBER_VAL, %); break;
 			case OP_NOT:
 				push(BOOL_VAL(isFalsey(pop(1))));
 				break;
+			
 			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
 					runtimeError("\e[1;31mError: Operand must be a number, ");
@@ -665,22 +697,26 @@ static InterpretResult run() {
 				
 				(AS_NUMBER(*valueToNegate)) = 0 - (AS_NUMBER(*valueToNegate)); break;
 			}
+			
 			case OP_PRINT: {
 				printValue(pop(1));
 				//if (REPLmode) printf("\n");
 				printf("\n");
 				break;
 			}
+			
 			case OP_JUMP: {
 				uint16_t offset = READ_SHORT();
 				frame->ip += offset;
 				break;
 			}
+			
 			case OP_JUMP_IF_FALSE: {
 				uint8_t offset = READ_SHORT();
 				if(isFalsey(peek(0))) frame->ip += offset;
 				break;
 			}
+			
 			case OP_LOOP: {
 				uint16_t offset = READ_SHORT();
 				frame->ip -= offset;
@@ -692,20 +728,6 @@ static InterpretResult run() {
 				frame->ip += offset;
 				break;
 			}
-			/*case OP_BREAK: {
-				Value breakVal;
-				breakVal.type = VAL_BREAK;
-				push(breakVal);
-				break;
-			}
-			case OP_JUMP_IF_BREAK: {
-				uint16_t offset = READ_SHORT();
-				if(peek(0).type == VAL_BREAK) {
-					vm.ip += offset;
-				}
-				
-				break;
-			}*/
 			
 			case OP_CALL: {
 				int argCount = READ_BYTE();
@@ -823,60 +845,42 @@ static InterpretResult run() {
 #undef BINARY_OP
 }
 
-InterpretResult interpret(const char* source) {
-	ObjFunction* function = compile(source);
-	if (function == NULL) {
+InterpretResult interpret(const char* source, size_t len, bool REPLmode, bool* withinREPL) {
+	if (!REPLmode) {
+		// Not REPL mode
+		ObjFunction* function = compile(source, len, REPLmode, *withinREPL);
+		if (function == NULL) {
+			clearLineInfo();
+			return INTERPRET_COMPILE_ERROR;
+		}
+	
+		push(OBJ_VAL(function));
+		ObjClosure* closure = newClosure(function);
+		pop(1);
+		push(OBJ_VAL(closure));
+		callValue(OBJ_VAL(closure), 0);
+	
+		InterpretResult result = run();
 		clearLineInfo();
-		return INTERPRET_COMPILE_ERROR;
-	}
+		return result;
+	} else {
+		// REPL mode
+		ObjFunction* function = compileREPL(source, len, REPLmode, *withinREPL);
+		if (function == NULL) {
+			*withinREPL = true;
+			clearLineInfo();
+			return INTERPRET_COMPILE_ERROR;
+		}
 	
-	push(OBJ_VAL(function));
-	ObjClosure* closure = newClosure(function);
-	pop(1);
-	push(OBJ_VAL(closure));
-	callValue(OBJ_VAL(closure), 0);
+		push(OBJ_VAL(function));
+		ObjClosure* closure = newClosure(function);
+		pop(1);
+		push(OBJ_VAL(closure));
+		callValue(OBJ_VAL(closure), 0);
 	
-	InterpretResult result = run();
-	clearLineInfo();
-	return result;
-}
-
-bool withinREPL = false;
-
-Chunk chunkREPL;
-
-InterpretResult interpretREPL(const char* source) {
-	ObjFunction* function = compileREPL(source);
-	if (function == NULL) {
-		withinREPL = true;
+		InterpretResult result = run();
 		clearLineInfo();
-		return INTERPRET_COMPILE_ERROR;
+		*withinREPL = true;
+		return result;
 	}
-	
-	push(OBJ_VAL(function));
-	ObjClosure* closure = newClosure(function);
-	pop(1);
-	push(OBJ_VAL(closure));
-	callValue(OBJ_VAL(closure), 0);
-	
-	InterpretResult result = run();
-	clearLineInfo();
-	withinREPL = true;
-	return result;	
-
-	/*if (!withinREPL) initChunk(&chunkREPL);
-	
-	if (!compile(source, &chunkREPL)) {
-		freeChunkButNotValueArray(&chunkREPL);
-		clearLineInfo();
-		return INTERPRET_COMPILE_ERROR;
-	}
-	
-	vm.chunk = &chunkREPL;
-	vm.ip = vm.chunk->code;
-	
-	InterpretResult result = run();
-	clearLineInfo();
-	freeChunkButNotValueArray(&chunkREPL);
-	withinREPL = true;*/
 }

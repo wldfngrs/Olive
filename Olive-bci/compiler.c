@@ -19,6 +19,8 @@ bool scannedPastNewLine = false; /* handling new lines as an end-of-scope mechan
 
 int breakGlobal = 0; /* if a break statement has not been parsed. */
 ValueArray constants; /* Value array to hold all values during parsing. This ValueArray is shared by all function chunks during execution. */
+bool REPL = false; /* Whether or not compiling in REPL mode */
+
 
 /* Parser type. 
 	'current' -> the currently *parsing* token.
@@ -223,10 +225,11 @@ static void advance() {
 		if (parser.current.type == TOKEN_NEWLINE) {
 			temp.type = TOKEN_NEWLINE;
 			continue;
-		}
-		else if(parser.current.type != TOKEN_ERROR) {
+		} else if (parser.current.type != TOKEN_ERROR) {
 			scannedPastNewLine = false;
 			break;
+		} else if (parser.current.type == TOKEN_EOF) {
+			
 		}
 		
 		errorAtCurrent(parser.current.start);
@@ -284,12 +287,12 @@ static void emitLoop(int loopStart) {
 }
 
 /* emit bytecode for continue instruction. */
-static void emitContinue(int* continueStart, uint8_t instruction) {
+/*static void emitContinue(int* continueStart, uint8_t instruction) {
 	emitByte(instruction);
 	emitByte(0xff);
 	emitByte(0xff);
 	*continueStart = currentChunk()->count - 2;
-}
+}*/
 
 /* emit bytecode for jump instruction. */
 static int emitJump(uint8_t instruction) {
@@ -433,7 +436,7 @@ static int identifierConstantDeclaration(Token* name, bool isConst, bool isMetho
 		}
 		else if (currentChunk()->constants->values[(int)AS_NUMBER(constantIndex)].isConst == false
 		&&
-		!REPLmode
+		!REPL
 		&&
 		currentClass == NULL
 		&&
@@ -592,7 +595,7 @@ static uint8_t argumentList() {
 				error("Can't have more than 255 arguments.");
 			}
 			argCount++;
-		} while (match(TOKEN_COMMA));
+		} while (match(TOKEN_COMMA) && parser.current.type != TOKEN_EOF);
 	}
 	
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
@@ -973,7 +976,7 @@ static void function(FunctionType type) {
 			
 			uint8_t paramConstant = parseVariable("Expect parameter name.", false);
 			defineVariable(paramConstant);
-		} while (match(TOKEN_COMMA));
+		} while (match(TOKEN_COMMA) && parser.current.type != TOKEN_EOF);
 	}
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
 	
@@ -1077,7 +1080,7 @@ static void deleteAttribute() {
 	do {
 		expression();
 		argCount++;
-	} while (match(TOKEN_COMMA) && argCount < 2);
+	} while (match(TOKEN_COMMA) && argCount < 2 && parser.current.type != TOKEN_EOF);
 	
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
 	consume(TOKEN_SEMICOLON, "Expect ';' after 'del_attr' function call.");
@@ -1190,7 +1193,7 @@ static void forStatement() {
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
 		declaration(&controls);
 	} else {
-		while(!scannedPastNewLine) {
+		while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 			declaration(&controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
@@ -1242,7 +1245,7 @@ static void ifStatement(controlFlow* controls) {
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
 			declaration(controls);
 	} else {
-		while(!scannedPastNewLine) {
+		while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 			declaration(controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
@@ -1261,7 +1264,7 @@ static void ifStatement(controlFlow* controls) {
 		if (parser.current.type == TOKEN_LEFT_BRACE) 	{
 			declaration(controls);
 		} else {
-			while(!scannedPastNewLine) {
+			while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 				declaration(controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
@@ -1308,7 +1311,7 @@ static void switchStatement(controlFlow* prevControl) {
 		if (parser.current.type == TOKEN_LEFT_BRACE) {
 			declaration(&controls);
 		} else {
-			while(!scannedPastNewLine) {
+			while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 				declaration(&controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
@@ -1333,14 +1336,12 @@ static void switchStatement(controlFlow* prevControl) {
 	
 	consumeIf(TOKEN_SWITCHDEFAULT);
 	if (parser.previous.type == TOKEN_SWITCHDEFAULT) {
-		//breakGlobal = 0;
-		int exitDefault;
 		consume(TOKEN_COLON, "Expect ':' after 'default' token");
 		
 		if (parser.current.type == TOKEN_LEFT_BRACE) {
 			declaration(&controls);
 		} else {
-			while(!scannedPastNewLine) {
+			while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 				declaration(&controls);
 				if (breakGlobal == 1) {
 					continueParsingOnBreak1();
@@ -1392,14 +1393,10 @@ static void returnStatement() {
 
 /* emit instruction for while statment */
 static void whileStatement() {
-	int breakJump = 0;
-	
 	loopLevel++;
 	int loopStart = currentChunk()->count;
 	controlFlow controls;
 	initControlFlow(&controls);
-	//controls.continuePoint = loopStart;
-	int exitIndex = 0;
 	
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while' statement.");
 	expression();
@@ -1411,7 +1408,7 @@ static void whileStatement() {
 	if (parser.current.type == TOKEN_LEFT_BRACE) {
 		declaration(&controls);
 	} else {
-		while(!scannedPastNewLine) {
+		while(!scannedPastNewLine && parser.current.type != TOKEN_EOF) {
 			declaration(&controls);
 			if (breakGlobal == 1) {
 				continueParsingOnBreak1();
@@ -1488,7 +1485,6 @@ static void constDeclaration() {
 }
 
 /* The base idea of some statements taking a controlFlow argument and others not: loop and switch statements have break statements defined within them to be exclusive to them. If statements on the other hand, inherit the break statement of the switch or loop statement that they're parsed within. Switch statements as well inherit the continue statements of whatever loop statements they are parsed within.*/
-
 static void statement(controlFlow* controls) {
 	if(match(TOKEN_PRINT)) {
 		printStatement();
@@ -1534,11 +1530,12 @@ static void addNativeIdentifiers() {
 		tableSet(&vm.globalConstantIndex, &OBJ_KEY(key), NUMBER_VAL(index));
 	}
 }
- /* compile a source file. */
-ObjFunction* compile(const char* source) {
+
+/* compile a source file. */
+ObjFunction* compile(const char* source, size_t len, bool REPLmode, bool withinREPL) {
 	initValueArray(&constants);
 	
-	initScanner(source);
+	initScanner(source, len);
 	Compiler compiler;
 	initCompiler(&compiler, TYPE_SCRIPT, &constants);
 	addNativeIdentifiers();
@@ -1557,15 +1554,15 @@ ObjFunction* compile(const char* source) {
 }
 
 /* compile REPL text. */
-ObjFunction* compileREPL(const char* source) {
+ObjFunction* compileREPL(const char* source, size_t len, bool REPLmode, bool withinREPL) {
+	REPL = REPLmode;
 	static ValueArray constants;
 	if (!withinREPL) initValueArray(&constants);
 	
-	initScanner(source);
+	initScanner(source, len);
 	Compiler compiler;
 	initCompiler(&compiler, TYPE_SCRIPT, &constants);
-	addNativeIdentifiers();
-	//controlFlow* controls;
+	if (!withinREPL) addNativeIdentifiers();
 	
 	parser.hadError = false;
 	parser.panicMode = false;

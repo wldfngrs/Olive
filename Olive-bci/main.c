@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "common.h"
 #include "vm.h"
-#include <stdio.h>
+#include "dynamic_array.h"
 
 char* welcome_text = {
 "        888\n"
@@ -19,11 +20,12 @@ char* version_text = {"Olive Interpreter v0.0.1 (Mar 27 2023, 17:53:14) [GCC 11.
 
 
 bool REPLmode = false;
+bool withinREPL = false;
 int currentLength = 0;
 int prevLength = 0;
 
 static bool quit(char* line) {
-	if ((strcmp(line + prevLength, "exit\n") * strcmp(line + prevLength, "quit\n")) == 0) {
+	if ((strcmp(line, "exit\n") * strcmp(line, "quit\n")) == 0) {
 		return true;
 	}
 	
@@ -36,31 +38,34 @@ static void repl() {
 	printf("%s\n", welcome_text);
 	printf("\e[1;32m%s\n\n\e[0m", version_text);
 	char line[1024];
+	DA da_line;
+	initDynamicArray(&da_line);
 	for(;;) {
 		printf("> ");
 		
-		if (!fgets(line + prevLength, sizeof(line), stdin)) {
+		if (!fgets(line, sizeof(line), stdin)) {
 			printf("\n");
 			break;
 		}
 		
-		currentLength = strlen(line);
+		appendDynamicArray(&da_line, line);
+		currentLength = da_line.count;
 
-		
 		if (quit(line)) {
 			withinREPL = false;
 			printf("Exiting Olive.\n\n");
 			return;
 		}
 		
-		interpretREPL(line + prevLength);
-		//interpret(line);
+		interpret(da_line.array + prevLength, currentLength - prevLength, REPLmode, &withinREPL);
 		prevLength = currentLength;
 	}
+	
+	freeDynamicArray(&da_line);
 }
 
 static int checkExtension(const char* path) {
-	char* extension = strstr(path, ".");
+	char* extension = strrchr(path, '.');
 	if (extension == NULL) {
 		return -1;
 	}
@@ -107,7 +112,8 @@ static char* readFile(const char* path) {
 static void runFile(const char* path) {
 	REPLmode = false;
 	char* source = readFile(path);
-	InterpretResult result = interpret(source);
+	size_t len = strlen(source);
+	InterpretResult result = interpret(source, len, REPLmode, &withinREPL);
 	free(source);
 	
 	if (result == INTERPRET_COMPILE_ERROR) exit(65);
@@ -125,6 +131,6 @@ int main(int argc, const char* argv[]) {
 		fprintf(stderr, "Usage: olive [path]\n");
 		exit(64);
 	}
-	freeVM();
+	freeVM(REPLmode);
 	return 0;
 }

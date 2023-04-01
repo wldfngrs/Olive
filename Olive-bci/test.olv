@@ -1,24 +1,16 @@
-for (var a = 0; a < 10; a = a + 1) {
-	switch(a) {
-		case 1: {
-			print a;
-			continue;
-		}
-		
-		case 3: {
-			print 3;
-			continue;
-		}
-		
-		case 5: {
-			continue;
-		}
-		
-		default: {
-			print "default";
-		}
+class names {
+	init(name) {
+		this.name = name;
 	}
 	
-	if (a > 8) break;
-	print a; 
+	change_name(new_name) {
+		this.name = new_name;
+	}
 }
+
+var a = names("James");
+print "My name is " + a.name; // My name is James
+a.name = "Mubarak";
+print "My name is " + a.name; // My name is Mubarak
+a.change_name("Olive");
+print "My name is " + a.name; // My name is Olive

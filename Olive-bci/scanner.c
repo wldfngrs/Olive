@@ -7,20 +7,23 @@
 static int interpolationCount = 0;
 static bool inInterpolation = false;
 static bool interpolatedString = false;
-static bool jsi = false; // jsi -- justScannedInterpolation. Set when the scanner has scanned passed all the interpolation tokens in a given string.
 
 typedef struct {
 	const char* start;
 	const char* current;
 	int line;
+	size_t index;
+	size_t end;
 } Scanner;
 
 Scanner scanner;
 
-void initScanner(const char* source) {
+void initScanner(const char* source, size_t len) {
 	scanner.start = source;
 	scanner.current = source;
 	scanner.line = 1;
+	scanner.index = 0;
+	scanner.end = len;
 }
 
 static bool isAlpha(char c) {
@@ -34,10 +37,11 @@ static bool isDigit(char c) {
 }
 
 static bool isAtEnd() {
-	return *scanner.current == '\0';
+	return scanner.end == scanner.index;
 }
 
 static char advance() {
+	scanner.index++; 
 	scanner.current++;
 	return scanner.current[-1];
 }

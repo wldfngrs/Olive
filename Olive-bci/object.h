@@ -106,6 +106,7 @@ ObjInstance* newInstance(ObjClass* c);
 ObjNative* newNative(NativeFunction function);
 ObjString* takeString(const char* chars, int length);
 ObjString* allocateString(bool ownString, const char* chars, int length);
+void resolveStringInterns(size_t offset);
 ObjUpvalue* newUpvalue(Value* slot);
 void printObject(Value value);
 
