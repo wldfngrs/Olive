@@ -113,6 +113,11 @@ static void runFile(const char* path) {
 	REPLmode = false;
 	char* source = readFile(path);
 	size_t len = strlen(source);
+	
+	if (source[len] == '\0') {
+		len--;
+	}
+	
 	InterpretResult result = interpret(source, len, REPLmode, &withinREPL);
 	free(source);
 	

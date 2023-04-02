@@ -902,7 +902,8 @@ ParseRule rules[] = {
 	[TOKEN_EOF]= {NULL,NULL,PREC_NONE},
 	[TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
 	[TOKEN_NL] = {newline, NULL, PREC_NONE},
-	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION}
+	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION},
+	[TOKEN_MOD] = {NULL, binary, PREC_FACTOR},
 };
 
 /* Read Pratt's Parsers. Function to parser input based on their given precedence (See 'rules' array). */

@@ -859,6 +859,7 @@ static InterpretResult run(bool REPLmode) {
 InterpretResult interpret(const char* source, size_t len, bool REPLmode, bool* withinREPL) {
 	if (!REPLmode) {
 		// Not REPL mode
+		strlen(source);
 		ObjFunction* function = compile(source, len, REPLmode, *withinREPL);
 		if (function == NULL) {
 			clearLineInfo();

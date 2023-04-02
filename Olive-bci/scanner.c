@@ -37,7 +37,7 @@ static bool isDigit(char c) {
 }
 
 static bool isAtEnd() {
-	return scanner.end == scanner.index;
+	return scanner.index >= scanner.end;
 }
 
 static char advance() {
@@ -66,6 +66,7 @@ static bool match(char expected) {
 	if(*scanner.current != expected) return false;
 	
 	scanner.current++;
+	scanner.index++;
 	return true;
 }
 
@@ -111,7 +112,6 @@ static void skipWhitespace() {
 				advance();
 				break;
 			case '\n':
-				// change made here
 				newLine = true;
 				return;
 			case '/':
@@ -193,6 +193,7 @@ static TokenType identifierType() {
 			}
 			break;
 		case 'i': return checkKeyword(1,1, "f", TOKEN_IF);
+		case 'm': return checkKeyword(1,2, "od", TOKEN_MOD);
 		case 'n': {
 			if (scanner.current - scanner.start > 1) {
 				switch (scanner.start[1]) {
@@ -332,7 +333,6 @@ Token scanToken() {
 		case '+': return makeToken(TOKEN_PLUS);
 		case '/': return makeToken(TOKEN_SLASH);
 		case '*': return makeToken(TOKEN_STAR);
-		case '%': return makeToken(TOKEN_MOD);
 		case '!':
 			return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
 		case '=':
