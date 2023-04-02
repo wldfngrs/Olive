@@ -16,13 +16,31 @@ char* welcome_text = {
 " \"Y88P\"  \"Y88P\"\"Y88P\" \"Y8Y\"   \"Y8888P\"\n"
 };
 
-char* version_text = {"Olive Interpreter v0.0.1 (Mar 27 2023, 17:53:14) [GCC 11.2.0] on linux\nCopyright(C) 2023 wldfngrs, https://github.com/wldfngrs/Olive"};
+char* version_text1 = {"Olive Interpreter v0.0.1"};
+char* version_text2 = {"\nCopyright(C) 2023 wldfngrs, https://github.com/wldfngrs/Olive\nType \"exit\" or \"quit\" to quit the REPL session."};
 
 
 bool REPLmode = false;
 bool withinREPL = false;
 int currentLength = 0;
 int prevLength = 0;
+
+static void printGCCVersionDateAndTime() {
+	FILE* date = popen("date", "r");
+	char* line = NULL;
+	size_t len = 0;
+	getline(&line, &len, date);
+	line[strlen(line) - 1] = '\0';
+	printf("\e[1;32m%s", version_text1);
+	printf(" (%s) ", line);
+	
+	FILE* gcc = popen("gcc --version | awk '{print $4;exit}'", "r");
+	len = 0;
+	getline(&line, &len, gcc);
+	line[strlen(line) - 1] = '\0';
+	printf(" [GCC %s] ", line);
+	printf("%s\n\n\e[0m", version_text2);
+}
 
 static bool quit(char* line) {
 	if ((strcmp(line, "exit\n") * strcmp(line, "quit\n")) == 0) {
@@ -36,7 +54,7 @@ static bool quit(char* line) {
 static void repl() {
 	REPLmode = true;
 	printf("%s\n", welcome_text);
-	printf("\e[1;32m%s\n\n\e[0m", version_text);
+	printGCCVersionDateAndTime();
 	char line[1024];
 	DA da_line;
 	initDynamicArray(&da_line);
