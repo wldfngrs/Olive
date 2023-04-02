@@ -1,16 +1,1 @@
-class names {
-	init(name) {
-		this.name = name;
-	}
-	
-	change_name(new_name) {
-		this.name = new_name;
-	}
-}
-
-var a = names("James");
-print "My name is " + nl + a.name + nl; // My name is James
-a.name = "Mubarak";
-print "My name is " + a.name + nl; // My name is Mubarak
-a.change_name("Olive");
-print "My name is " + a.name + nl; // My name is Olive
+print 10 + nl;
