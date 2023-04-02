@@ -11,7 +11,7 @@ typedef enum {
 	VAL_NULL,
 	VAL_NUMBER,
 	VAL_OBJ,
-	//VAL_BREAK,
+	VAL_NL,
 } ValueType;
 
 typedef struct {
@@ -37,6 +37,7 @@ typedef struct {
 #define NULL_VAL         	((Value){VAL_NULL, {.number = 0}})
 #define NUMBER_VAL(value)	((Value){VAL_NUMBER, {.number = value}})
 #define OBJ_VAL(object)		((Value){VAL_OBJ, {.obj = (Obj*)object}})
+#define NL_VAL			((Value){VAL_NL})
 
 typedef struct {
 	int capacity;

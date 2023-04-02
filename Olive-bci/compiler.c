@@ -717,6 +717,10 @@ static void string(bool canAssign) {
 	}
 }
 
+static void newline(bool canAssign) {
+	emitConstant(NL_VAL);
+}
+
 /* emit instructions to get already defined identifiers. */
 static void namedVariable(Token name, bool canAssign) {
 	uint8_t getOp, setOp;
@@ -897,6 +901,7 @@ ParseRule rules[] = {
 	[TOKEN_CONST] = {NULL, NULL, PREC_NONE},
 	[TOKEN_EOF]= {NULL,NULL,PREC_NONE},
 	[TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
+	[TOKEN_NL] = {newline, NULL, PREC_NONE},
 	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION}
 };
 

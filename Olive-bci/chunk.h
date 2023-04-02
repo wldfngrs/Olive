@@ -61,7 +61,7 @@ typedef enum {
 	OP_INHERIT,
 	OP_INVOKE,
 	OP_BASE_INVOKE,
-	OP_METHOD
+	OP_METHOD,
 } OpCode;
 
 /* A Chunk type to hold the bytecode instructions. A dynamic array with the ValueArray included in it's definition. */

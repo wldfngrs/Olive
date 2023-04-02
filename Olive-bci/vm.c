@@ -314,7 +314,7 @@ static void convconcatenate() {
 	char* result = ALLOCATE(char, 1024); // not a great use of memory, sigh, I know
 	
 	if (result == NULL) {
-		runtimeError("\e[1;31mError: Unexpected memory allocation error.");
+		runtimeError("\e[1;31mError: Unexpected memory allocation error. ");
 	}
 	
 	switch(b.type) {
@@ -348,7 +348,7 @@ static void convconcatenate() {
 		
 		case VAL_OBJ: {
 			if(!IS_STRING(b)) {
-				runtimeError("\e[1;31mError: Invalid operands for string conversion");
+				runtimeError("\e[1;31mError: Invalid operands for string conversion. ");
 			}
 			
 			ObjString* str = AS_STRING(b);
@@ -357,8 +357,14 @@ static void convconcatenate() {
 			break;
 		}
 		
+		case VAL_NL: {
+			memcpy(result + length, "\n", 1);
+			length += 1;
+			break;
+		}
+		
 		default: {
-			runtimeError("\e[1;31mError: Invalid operands for string conversion.");
+			runtimeError("\e[1;31mError: Invalid operands for string conversion. ");
 		}
 			
 	}
@@ -401,6 +407,12 @@ static void convconcatenate() {
 			break;
 		}
 		
+		case VAL_NL: {
+			memcpy(result + length, "\n", 1);
+			length += 1;
+			break;
+		}
+		
 		default: {
 			runtimeError("\e[1;31mError: Invalid operands for string conversion.");
 		}
@@ -414,7 +426,7 @@ static void convconcatenate() {
 	push(OBJ_VAL(output));	
 }
 
-static InterpretResult run() {
+static InterpretResult run(bool REPLmode) {
 	CallFrame* frame = &vm.frames[vm.frameCount - 1];
 
 #define READ_BYTE() (*frame->ip++)
@@ -700,8 +712,7 @@ static InterpretResult run() {
 			
 			case OP_PRINT: {
 				printValue(pop(1));
-				//if (REPLmode) printf("\n");
-				printf("\n");
+				if (REPLmode) printf("\n");
 				break;
 			}
 			
@@ -860,7 +871,7 @@ InterpretResult interpret(const char* source, size_t len, bool REPLmode, bool* w
 		push(OBJ_VAL(closure));
 		callValue(OBJ_VAL(closure), 0);
 	
-		InterpretResult result = run();
+		InterpretResult result = run(REPLmode);
 		clearLineInfo();
 		return result;
 	} else {
@@ -878,7 +889,7 @@ InterpretResult interpret(const char* source, size_t len, bool REPLmode, bool* w
 		push(OBJ_VAL(closure));
 		callValue(OBJ_VAL(closure), 0);
 	
-		InterpretResult result = run();
+		InterpretResult result = run(REPLmode);
 		clearLineInfo();
 		*withinREPL = true;
 		return result;

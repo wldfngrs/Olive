@@ -35,7 +35,7 @@ void printValue(Value value) {
 		case VAL_NULL: printf("null"); break;
 		case VAL_NUMBER: printf("%g", AS_NUMBER(value)); break;
 		case VAL_OBJ: printObject(value); break;
-		//case VAL_BREAK: printf("-/->"); break;
+		case VAL_NL: printf("\\n"); break;
 	}
 }
 
