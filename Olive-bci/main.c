@@ -40,6 +40,9 @@ static void printGCCVersionDateAndTime() {
 	line[strlen(line) - 1] = '\0';
 	printf(" [GCC %s] ", line);
 	printf("%s\n\n\e[0m", version_text2);
+	free(line);
+	pclose(date);
+	pclose(gcc);
 }
 
 static bool quit(char* line) {
