@@ -43,6 +43,7 @@ typedef enum {
 	OP_MULTIPLY,
 	OP_DIVIDE,
 	OP_MOD,
+	OP_PERCENT,
 	OP_NOT,	
 	OP_NEGATE,
 	OP_PRINT,

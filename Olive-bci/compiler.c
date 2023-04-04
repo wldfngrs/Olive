@@ -645,6 +645,7 @@ static void binary(bool canAssign) {
 		case TOKEN_STAR: emitByte(OP_MULTIPLY); break;
 		case TOKEN_SLASH: emitByte(OP_DIVIDE); break;
 		case TOKEN_MOD: emitByte(OP_MOD); break;
+		case TOKEN_PERCENT: emitByte(OP_PERCENT); break;
 		default:
 			return;
 	}
@@ -904,6 +905,7 @@ ParseRule rules[] = {
 	[TOKEN_NL] = {newline, NULL, PREC_NONE},
 	[TOKEN_CONCAT] = {NULL, binary, PREC_INTERPOLATION},
 	[TOKEN_MOD] = {NULL, binary, PREC_FACTOR},
+	[TOKEN_PERCENT] = {NULL, binary, PREC_FACTOR},
 };
 
 /* Read Pratt's Parsers. Function to parser input based on their given precedence (See 'rules' array). */

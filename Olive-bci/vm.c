@@ -306,7 +306,7 @@ static void concatenate() {
 	push(OBJ_VAL(result));
 }
 
-static void convconcatenate() {
+static bool convconcatenate() {
 	Value a = peek(0);
 	Value b = peek(1);
 	
@@ -365,6 +365,7 @@ static void convconcatenate() {
 		
 		default: {
 			runtimeError("\e[1;31mError: Invalid operands for string conversion. ");
+			return false;
 		}
 			
 	}
@@ -415,6 +416,7 @@ static void convconcatenate() {
 		
 		default: {
 			runtimeError("\e[1;31mError: Invalid operands for string conversion.");
+			return false;
 		}
 			
 	}
@@ -424,6 +426,25 @@ static void convconcatenate() {
 	ObjString* output = takeString(result, length);
 	pop(2);
 	push(OBJ_VAL(output));	
+	return true;
+}
+
+static bool percentOf() {
+	Value b = peek(0);
+	Value a = peek(1);
+	
+	if (!IS_NUMBER(a) || !IS_NUMBER(b)) {
+		runtimeError("\e[1;31mError: Invalid operands for 'percent-of' operation.");
+		return false;
+	}
+	
+	double a_num = AS_NUMBER(a);
+	double b_num = AS_NUMBER(b);
+	
+	Value result = NUMBER_VAL(a_num/100 * b_num);
+	pop(2);
+	push(result);
+	return true;
 }
 
 static InterpretResult run(bool REPLmode) {
@@ -680,9 +701,11 @@ static InterpretResult run(bool REPLmode) {
 					Value* stackTop = vm.stackTop - 1; 
 		AS_NUMBER(*stackTop) = AS_NUMBER(*stackTop)+ b;
 				} else if (IS_STRING(peek(0)) || IS_STRING(peek(1)) || IS_NL(peek(0)) || IS_NL(peek(0))) {
-					convconcatenate();
+					if (!convconcatenate()) {
+						return INTERPRET_RUNTIME_ERROR;
+					}
 				} else {
-					runtimeError("\e[1;31mError: Operands must be two numbers or two strings, ");
+					runtimeError("\e[1;31mError: Operands to '+' operation must be numbers or strings or a mix of both, ");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				break;
@@ -694,9 +717,17 @@ static InterpretResult run(bool REPLmode) {
 			case OP_DIVIDE: BINARY_OP(NUMBER_VAL, /); break;
 			
 			case OP_MOD: MOD_OP(NUMBER_VAL, %); break;
-			case OP_NOT:
+			case OP_PERCENT: {
+				if(!percentOf()) {
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				break;
+			}
+			
+			case OP_NOT: {
 				push(BOOL_VAL(isFalsey(pop(1))));
 				break;
+			}
 			
 			case OP_NEGATE: {
 				if(!IS_NUMBER(peek(0))) {
