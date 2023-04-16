@@ -1,5 +1,6 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -342,7 +343,7 @@ static bool convconcatenate() {
 			snprintf(str, len + 1, "%g", AS_NUMBER(b));
 			memcpy(result + length, str, len);	
 			length += len;
-			break;		
+			FREE(char, str);		
 			break;		
 		}
 		
@@ -395,6 +396,7 @@ static bool convconcatenate() {
 			snprintf(str, len + 1, "%g", AS_NUMBER(a));
 			memcpy(result + length, str, len);	
 			length += len;
+			FREE(char, str);
 			break;		
 		}
 		
