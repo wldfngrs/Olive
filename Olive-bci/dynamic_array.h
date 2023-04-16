@@ -27,6 +27,8 @@ void appendDynamicArray(struct dynamic_array* da, char* in) {
 void freeDynamicArray(struct dynamic_array* da) {
 	FREE_ARRAY(int, da->array, da->capacity);
 	da->count = 0;
+	da->capacity = 0;
+	da->array = NULL;
 }
 
 void initDynamicArray(struct dynamic_array* da) {

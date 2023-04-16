@@ -33,6 +33,7 @@ static void printGCCVersionDateAndTime() {
 	line[strlen(line) - 1] = '\0';
 	printf("\e[1;32m%s", version_text1);
 	printf(" (%s) ", line);
+	free(line);
 	
 	FILE* gcc = popen("gcc --version | awk '{print $4;exit}'", "r");
 	len = 0;
@@ -75,7 +76,7 @@ static void repl() {
 		if (quit(line)) {
 			withinREPL = false;
 			printf("Exiting Olive.\n\n");
-			return;
+			break;
 		}
 		
 		interpret(da_line.array + prevLength, currentLength - prevLength, REPLmode, &withinREPL);
