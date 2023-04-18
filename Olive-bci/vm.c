@@ -95,7 +95,7 @@ void freeVM(bool REPLmode) {
 	freeTable(&vm.globalConstantIndex);
 	freeTable(&vm.strings);
 	vm.initString = NULL;
-	if (REPLmode) {
+	if (REPLmode && vm.frameCount > 0) {
 		freeValueArray(vm.frames[0].closure->function->chunk.constants);
 	}
 	freeStack(&vm.stack);
