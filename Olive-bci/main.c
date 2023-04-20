@@ -75,7 +75,7 @@ static void repl() {
 
 		if (quit(line)) {
 			withinREPL = false;
-			printf("Exiting Olive.\n\n");
+			printf("Exiting Olive...\n\n");
 			break;
 		}
 		
