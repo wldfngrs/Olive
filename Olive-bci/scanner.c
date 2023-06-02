@@ -37,7 +37,7 @@ static bool isDigit(char c) {
 }
 
 static bool isAtEnd() {
-	return scanner.index >= scanner.end;
+	return scanner.index > scanner.end;
 }
 
 static char advance() {
